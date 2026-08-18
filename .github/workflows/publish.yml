@@ -1,0 +1,37 @@
+name: publish
+
+# 监听 v* tag：例如 git tag v0.0.1 && git push origin v0.0.1
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # lib/ 已提交到仓库，因此发布前不需要在 CI 里构建。
+      # 如果你希望 CI 重新构建，请先把构建脚本改成不依赖 DSH checkout 的独立构建。
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          npm pack --ignore-scripts
+          gh release create "$TAG" "multiple-chat-panels-$VERSION.tgz" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

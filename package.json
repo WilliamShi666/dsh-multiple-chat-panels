@@ -1,0 +1,89 @@
+{
+  "name": "multiple-chat-panels",
+  "version": "0.0.1",
+  "description": "Multiple chat panels for DeepSeek Harness: view and interact with several agent sessions side by side in a Mission Control grid",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/types/index.d.ts",
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "FUTURE_UPSTREAM.md"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "multi-pane",
+    "chat",
+    "mission-control"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "WilliamShi666",
+    "url": "https://github.com/WilliamShi666"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WilliamShi666/dsh-multiple-chat-panels.git"
+  },
+  "homepage": "https://github.com/WilliamShi666/dsh-multiple-chat-panels#readme",
+  "bugs": {
+    "url": "https://github.com/WilliamShi666/dsh-multiple-chat-panels/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.0-rc <5",
+    "@deepseek-ai/dsh-api-remotes": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-client-runtime": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-client-ui-layout": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-client-ui-model-selection": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-client-ui-sidebar": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-host-webserver": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-permission-presets": ">=0.0.1-rc <2",
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/react": "~18.3.1",
+    "typescript": "^5.9.0",
+    "tsdown": "^0.22.14"
+  },
+  "scripts": {
+    "build": "bash scripts/build.sh",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build:client": "tsdown"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-model-selection",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ],
+      "platform": "web"
+    }
+  }
+}
