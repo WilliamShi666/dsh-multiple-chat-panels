@@ -29,6 +29,8 @@ export type PaneRow = number
 export interface PaneSize {
   readonly width: number
   readonly height: number
+  /** Vertical offset inside its row, created by top-edge resizes. */
+  readonly top?: number
 }
 
 interface PaneState {
@@ -56,12 +58,16 @@ function normalizeSizes(value: unknown): Record<string, PaneSize> {
   if (typeof value !== 'object' || value === null) return sizes
   for (const [id, entry] of Object.entries(value as Record<string, unknown>)) {
     if (typeof entry !== 'object' || entry === null) continue
-    const candidate = entry as { width?: unknown; height?: unknown }
+    const candidate = entry as { width?: unknown; height?: unknown; top?: unknown }
     if (typeof candidate.width !== 'number' || typeof candidate.height !== 'number') continue
     if (!Number.isFinite(candidate.width) || !Number.isFinite(candidate.height)) continue
+    const top = typeof candidate.top === 'number' && Number.isFinite(candidate.top)
+      ? Math.max(0, Math.round(candidate.top))
+      : 0
     sizes[id] = {
       width: Math.max(MIN_PANE_WIDTH, Math.round(candidate.width)),
       height: Math.max(MIN_PANE_HEIGHT, Math.round(candidate.height)),
+      ...(top === 0 ? {} : { top }),
     }
   }
   return sizes
@@ -188,9 +194,11 @@ export function setPanes(next: readonly string[]): void {
 /** Record a pane's user-resized dimensions, clamped to the pane minimums. */
 export function setPaneSize(sessionId: string, size: PaneSize): void {
   if (!state.panes.includes(sessionId)) return
+  const top = Math.max(0, Math.round(size.top ?? 0))
   const clamped: PaneSize = {
     width: Math.max(MIN_PANE_WIDTH, Math.round(size.width)),
     height: Math.max(MIN_PANE_HEIGHT, Math.round(size.height)),
+    ...(top === 0 ? {} : { top }),
   }
   state = { ...state, sizes: { ...state.sizes, [sessionId]: clamped } }
   revision += 1

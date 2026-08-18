@@ -13,7 +13,7 @@ import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/c
 import { MissionControlNav, type MissionControlNavInjected } from './MissionControlNav.tsx'
 import { MissionControlPage, type MissionControlPageInjected } from './MissionControlPage.tsx'
 import { PANE_DRAG_MIME } from './drag.ts'
-import { placePane, type PaneRow } from './pane-store.ts'
+import { getPaneSize, PANE_GAP, placePane, type PaneRow } from './pane-store.ts'
 
 export const PAGE_ID = 'mission-control'
 
@@ -39,6 +39,31 @@ function beforeIdForDrop(rowElement: Element, clientX: number, excludeId: string
   return undefined
 }
 
+/** Width a pane will claim when it sits on a row: persisted size, else its DOM width. */
+function paneGridWidth(pane: Element, sessionId: string): number {
+  const persisted = getPaneSize(sessionId)
+  if (persisted !== undefined) return persisted.width
+  return pane.getBoundingClientRect().width
+}
+
+/** Whether inserting `draggedId` at `beforeId` fits the row's available width. */
+function rowFitsAfterInsert(rowElement: Element, draggedId: string, draggedWidth: number, beforeId: string | undefined): boolean {
+  const ids: string[] = []
+  for (const pane of rowElement.querySelectorAll('[data-mcp-pane]')) {
+    const sessionId = pane.getAttribute('data-mcp-session')
+    if (sessionId === null || sessionId === draggedId) continue
+    if (beforeId === sessionId) ids.push(draggedId)
+    ids.push(sessionId)
+  }
+  if (beforeId === undefined) ids.push(draggedId)
+  const width = ids.reduce((sum, id, index) => {
+    if (id === draggedId) return sum + draggedWidth
+    const pane = rowElement.querySelector(`[data-mcp-session="${CSS.escape(id)}"]`)
+    return sum + (pane === null ? 0 : paneGridWidth(pane, id))
+  }, PANE_GAP * Math.max(0, ids.length - 1))
+  return width <= rowElement.clientWidth + 1
+}
+
 /** Row chosen by the drop point; below the last row creates a new row. */
 function rowForDrop(grid: Element, clientY: number): PaneRow {
   const rows = [...grid.querySelectorAll(':scope > [data-mcp-row]')]
@@ -56,7 +81,10 @@ function clearDropPreview(): void {
   const grid = document.querySelector('[data-mcp-grid]')
   if (grid !== null) {
     delete grid.dataset.mcpNewRow
-    for (const row of grid.querySelectorAll(':scope > [data-mcp-row]')) row.classList.remove('mcp-drop-target')
+    for (const row of grid.querySelectorAll(':scope > [data-mcp-row]')) {
+      row.classList.remove('mcp-drop-target')
+      row.classList.remove('mcp-drop-reject')
+    }
   }
 }
 
@@ -112,13 +140,26 @@ export function apply(ctx: ClientContext): void {
     const grid = document.querySelector('[data-mcp-grid]')
     if (grid === null) return
     const row = rowForDrop(grid, event.clientY)
-    for (const rowElement of grid.querySelectorAll(':scope > [data-mcp-row]')) rowElement.classList.remove('mcp-drop-target')
+    for (const rowElement of grid.querySelectorAll(':scope > [data-mcp-row]')) {
+      rowElement.classList.remove('mcp-drop-target')
+      rowElement.classList.remove('mcp-drop-reject')
+    }
     delete grid.dataset.mcpNewRow
     const target = gridRowElement(grid, row)
-    if (target !== null) {
+    if (target === null) {
+      grid.dataset.mcpNewRow = '1'
+      return
+    }
+    const draggedId = event.dataTransfer.getData(PANE_DRAG_MIME)
+    const before = beforeIdForDrop(target, event.clientX, draggedId)
+    const draggedPane = document.querySelector(`[data-mcp-session="${CSS.escape(draggedId)}"]`)
+    const draggedWidth = draggedPane === null
+      ? getPaneSize(draggedId)?.width ?? 360
+      : draggedPane.getBoundingClientRect().width
+    if (rowFitsAfterInsert(target, draggedId, draggedWidth, before)) {
       target.classList.add('mcp-drop-target')
     } else {
-      grid.dataset.mcpNewRow = '1'
+      target.classList.add('mcp-drop-reject')
     }
   }
 
@@ -151,6 +192,13 @@ export function apply(ctx: ClientContext): void {
     const row = rowForDrop(grid, event.clientY)
     const rowElement = gridRowElement(grid, row)
     const before = rowElement === null ? undefined : beforeIdForDrop(rowElement, event.clientX, dragged)
+    if (paneDragged && rowElement !== null) {
+      const draggedPane = document.querySelector(`[data-mcp-session="${CSS.escape(dragged)}"]`)
+      const draggedWidth = draggedPane === null
+        ? getPaneSize(dragged)?.width ?? 360
+        : draggedPane.getBoundingClientRect().width
+      if (!rowFitsAfterInsert(rowElement, dragged, draggedWidth, before)) return
+    }
     placePane(dragged, row, before)
   }
 
