@@ -1,4 +1,4 @@
-# multiple-chat-panels
+# dsh-multiple-chat-panels
 
 Multiple chat panels for DeepSeek Harness: view and interact with several Agents side by side.
 
