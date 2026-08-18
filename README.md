@@ -1,8 +1,30 @@
 # multiple-chat-panels
 
-Multiple chat panels for DeepSeek Harness: view and interact with several agent sessions side by side.
+Multiple chat panels for DeepSeek Harness: view and interact with several Agents side by side.
 
-这是一个纯插件（不修改 DSH 核心包），为 DeepSeek Harness Web/Desktop UI 增加“Mission Control”多面板视图：默认仍是你熟悉的单对话视图；当你把侧边栏中的会话拖到中间区域时，会打开多个可实时交互的迷你会话面板。
+Terminal-native Agents (like Claude Code) give you a “god’s-eye view”: you can watch and steer multiple conversations at once, and interact with several Agents in parallel. Most desktop and web harnesses don’t offer this: you either work with a single Agent in a single conversation, or you juggle multiple windows and quickly lose context.
+
+multiple-chat-panels brings that same experience to DeepSeek Harness. Drag conversations from the left sidebar into the center area, and Mission Control opens with each session as a live, independently interactive panel. With this “god’s-eye view”, you can significantly improve how you interact with multiple Agents and how you handle multitasking, all without leaving your desktop or web UI. Available in both dark and light mode.
+
+![Claude Code in a terminal with multiple conversation panes](docs/screenshots/claude-code-terminal.jpg)
+
+![DeepSeek Harness multi-chat panels in dark mode](docs/screenshots/dark.jpg)
+
+![DeepSeek Harness multi-chat panels in light mode](docs/screenshots/light.jpg)
+
+---
+
+DeepSeek Harness 多对话面板：并排查看并与多个 Agent 同时交互。
+
+在终端里使用 TUI 形态的 Agent（例如 Claude Code），你会获得一种“一览众山小”的上帝视角：可以同时查看和操控多个对话窗口，并与多个 Agent 并行互动。但很多桌面端或网页端的 Harness 并不支持这种能力：要么只能在一个对话里和一个 Agent 交互，要么即使支持多 Agent / 多窗口，操作也非常繁琐。
+
+multiple-chat-panels 把这种体验带到了 DeepSeek Harness：你只需把左侧边栏里的对话拖到中间区域，Mission Control 就会把每个会话展开为一个可实时交互的独立面板。有了这样“一览众山小”的上帝视角，你可以显著提升与多个 Agent 的交互能力，以及多任务（multitasking）的执行能力；无需离开桌面端或网页端 UI。支持深色与浅色模式。
+
+![Claude Code 终端中的多对话窗口](docs/screenshots/claude-code-terminal.jpg)
+
+![DeepSeek Harness 多对话面板 · 深色模式](docs/screenshots/dark.jpg)
+
+![DeepSeek Harness 多对话面板 · 浅色模式](docs/screenshots/light.jpg)
 
 ## 安装
 
