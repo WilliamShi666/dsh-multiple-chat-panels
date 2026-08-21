@@ -1,10 +1,12 @@
 /**
  * Mission Control main page.
  *
- * Panes live in dynamic horizontal rows: a row that would overflow the
- * available width moves its rightmost pane to a new row, and a manual header
- * drag can place a pane in any row. Panes with no persisted size split their
- * row's width evenly; each row scrolls horizontally instead of auto-wrapping.
+ * Panes live in stable portal hosts inside dynamic horizontal rows, so moving
+ * a pane between rows preserves its conversation component and DOM. A row
+ * that would overflow the available width moves its rightmost pane to a new
+ * row, and a manual header drag can place a pane in any row. Panes with no
+ * persisted size split their row's width evenly; each row scrolls horizontally
+ * instead of auto-wrapping.
  * Panes are resizable through every edge and corner. Left-edge resizes
  * compensate the previous pane's width; top-edge resizes add a vertical
  * offset inside the row. A bottom-edge resize may grow past the current row:

@@ -1,10 +1,12 @@
 /**
  * Mission Control main page.
  *
- * Panes live in dynamic horizontal rows: a row that would overflow the
- * available width moves its rightmost pane to a new row, and a manual header
- * drag can place a pane in any row. Panes with no persisted size split their
- * row's width evenly; each row scrolls horizontally instead of auto-wrapping.
+ * Panes live in stable portal hosts inside dynamic horizontal rows, so moving
+ * a pane between rows preserves its conversation component and DOM. A row
+ * that would overflow the available width moves its rightmost pane to a new
+ * row, and a manual header drag can place a pane in any row. Panes with no
+ * persisted size split their row's width evenly; each row scrolls horizontally
+ * instead of auto-wrapping.
  * Panes are resizable through every edge and corner. Left-edge resizes
  * compensate the previous pane's width; top-edge resizes add a vertical
  * offset inside the row. A bottom-edge resize may grow past the current row:
@@ -12,7 +14,8 @@
  * gives way on commit, so taller panes squeeze the rows underneath instead of
  * being clamped at the row boundary.
  */
-import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ModelDirectory } from '@deepseek-ai/dsh-client-ui-model-selection/client'
@@ -167,6 +170,44 @@ function desiredRowHeights(
   })
 }
 
+/** Row container that moves stable pane hosts into the requested DOM order before paint. */
+function PaneRow({ row, ids, hosts, height }: {
+  readonly row: PaneRow
+  readonly ids: readonly string[]
+  readonly hosts: ReadonlyMap<string, HTMLDivElement>
+  readonly height: number
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (element === null) return
+    let cursor = element.firstElementChild
+    for (const id of ids) {
+      const host = hosts.get(id)
+      if (host === undefined) continue
+      if (host !== cursor) element.insertBefore(host, cursor)
+      cursor = host.nextElementSibling
+    }
+  }, [hosts, ids])
+
+  return (
+    <div
+      ref={ref}
+      data-mcp-row={row}
+      style={{
+        display: 'flex',
+        gap: PANE_GAP,
+        alignItems: 'stretch',
+        overflow: 'auto',
+        minHeight: 0,
+        height,
+        flexShrink: 0,
+      }}
+    />
+  )
+}
+
 /** One resizable, row-movable pane frame. */
 function ResizablePane({ sessionId, title, cwd, row, defaultSize, rowHeight, onClose, onOpenSingle, children }: {
   sessionId: string
@@ -255,7 +296,7 @@ function ResizablePane({ sessionId, title, cwd, row, defaultSize, rowHeight, onC
       top,
     }
     if (axisUsesLeft(axis)) {
-      const prev = frame.previousElementSibling
+      const prev = frame.parentElement?.previousElementSibling?.querySelector('[data-mcp-pane]')
       if (prev instanceof HTMLDivElement && prev.getAttribute('data-mcp-pane') !== null) {
         const prevSessionId = prev.getAttribute('data-mcp-session')
         if (prevSessionId !== null) {
@@ -579,6 +620,49 @@ function ResizablePane({ sessionId, title, cwd, row, defaultSize, rowHeight, onC
   )
 }
 
+const StableMiniChatPane = React.memo(MiniChatPane)
+
+/** Pane frame rendered into a stable host that can move between row containers. */
+function PortalPane({
+  sessionId, title, cwd, row, defaultSize, rowHeight,
+  session, directory, listCommands, openInMain,
+}: {
+  readonly sessionId: string
+  readonly title: string
+  readonly cwd: string | undefined
+  readonly row: PaneRow
+  readonly defaultSize: PaneSize
+  readonly rowHeight: number
+  readonly session: SessionFace | undefined
+  readonly directory: ModelDirectory | undefined
+  readonly listCommands: (sessionId: string) => Promise<readonly PaneCommand[]>
+  readonly openInMain: (sessionId: string) => void
+}) {
+  const close = useCallback(() => { removePane(sessionId) }, [sessionId])
+  const openSingle = useCallback(() => { openInMain(sessionId) }, [openInMain, sessionId])
+
+  return (
+    <ResizablePane
+      sessionId={sessionId}
+      title={title}
+      cwd={cwd}
+      row={row}
+      defaultSize={defaultSize}
+      rowHeight={rowHeight}
+      onClose={close}
+      onOpenSingle={openSingle}
+    >
+      <StableMiniChatPane
+        sessionId={sessionId}
+        session={session}
+        directory={directory}
+        listCommands={listCommands}
+        openInMain={openSingle}
+      />
+    </ResizablePane>
+  )
+}
+
 /** Mission Control page with a row-based pane layout. */
 export function MissionControlPage({
   useSessions, getSession, getModelDirectory, listCommands, openInMain,
@@ -589,6 +673,7 @@ export function MissionControlPage({
   const paneRevision = useSyncExternalStore(subscribePanes, getPaneRevision, () => 0)
   const panes = useSyncExternalStore(subscribePanes, getPanes, getPanes)
   const gridRef = useRef<HTMLDivElement>(null)
+  const paneHostsRef = useRef(new Map<string, HTMLDivElement>())
   const [viewport, setViewport] = useState<GridViewport | null>(null)
   const availableIds = useMemo(
     () => sessions.ids.filter(id => !panes.includes(id)),
@@ -622,6 +707,23 @@ export function MissionControlPage({
     reflowRows(viewport.width)
   }, [paneRevision, panes, viewport])
 
+  for (const id of panes) {
+    if (paneHostsRef.current.has(id)) continue
+    const host = document.createElement('div')
+    host.dataset.mcpPaneHost = id
+    host.style.display = 'contents'
+    paneHostsRef.current.set(id, host)
+  }
+
+  useEffect(() => {
+    const active = new Set(panes)
+    for (const [id, host] of paneHostsRef.current) {
+      if (active.has(id)) continue
+      host.remove()
+      paneHostsRef.current.delete(id)
+    }
+  }, [panes])
+
   const rowMap = new Map<number, string[]>()
   for (const id of panes) {
     const row = getPaneRow(id)
@@ -634,50 +736,14 @@ export function MissionControlPage({
   const rowIdsByNumber = rowNumbers.map(row => rowMap.get(row) ?? [])
   const rowHeights = desiredRowHeights(rowIdsByNumber, viewport)
 
-  const renderRow = (ids: readonly string[], row: PaneRow, rowHeight: number): React.ReactNode => {
-    const defaultSize = rowDefaultSize(ids.length, viewport, rowCount)
-    return (
-      <div
-        data-mcp-row={row}
-        style={{
-          display: 'flex',
-          gap: PANE_GAP,
-          alignItems: 'stretch',
-          overflow: 'auto',
-          minHeight: 0,
-          height: rowHeight,
-          flexShrink: 0,
-          ...(ids.length === 0 ? { height: 0, overflow: 'hidden' } : {}),
-        }}
-      >
-        {ids.map((sessionId) => {
-          const summary = sessions.byId[sessionId]
-          const title = summary?.title ?? summary?.displayTitle ?? sessionId
-          return (
-            <ResizablePane
-              key={sessionId}
-              sessionId={sessionId}
-              title={title}
-              cwd={summary?.cwd}
-              row={row}
-              defaultSize={defaultSize}
-              rowHeight={rowHeight}
-              onClose={() => removePane(sessionId)}
-              onOpenSingle={() => openInMain(sessionId)}
-            >
-              <MiniChatPane
-                sessionId={sessionId}
-                session={getSession(sessionId)}
-                directory={getModelDirectory(sessionId)}
-                listCommands={listCommands}
-                openInMain={() => openInMain(sessionId)}
-              />
-            </ResizablePane>
-          )
-        })}
-      </div>
-    )
-  }
+  const rowLayout = new Map<PaneRow, { readonly defaultSize: PaneSize; readonly height: number }>()
+  rowNumbers.forEach((row, index) => {
+    const ids = rowIdsByNumber[index] ?? []
+    rowLayout.set(row, {
+      defaultSize: rowDefaultSize(ids.length, viewport, rowCount),
+      height: rowHeights[index] ?? FALLBACK_PANE_SIZE.height,
+    })
+  })
 
   return (
     <div
@@ -764,11 +830,38 @@ export function MissionControlPage({
           <p style={{ color: 'var(--dsw-alias-label-primary-dimmed, #656d76)', margin: 0 }}>
             Drag a conversation here to start a multi-pane view.
           </p>
-        ) : rowNumbers.map((row, index) => renderRow(
-          rowIdsByNumber[index] ?? [],
-          row,
-          rowHeights[index] ?? FALLBACK_PANE_SIZE.height,
+        ) : rowNumbers.map((row, index) => (
+          <PaneRow
+            key={row}
+            row={row}
+            ids={rowIdsByNumber[index] ?? []}
+            hosts={paneHostsRef.current}
+            height={rowLayout.get(row)?.height ?? FALLBACK_PANE_SIZE.height}
+          />
         ))}
+        {panes.map((sessionId) => {
+          const host = paneHostsRef.current.get(sessionId)
+          if (host === undefined) return null
+          const row = getPaneRow(sessionId)
+          const layout = rowLayout.get(row)
+          const summary = sessions.byId[sessionId]
+          return createPortal(
+            <PortalPane
+              sessionId={sessionId}
+              title={summary?.title ?? summary?.displayTitle ?? sessionId}
+              cwd={summary?.cwd}
+              row={row}
+              defaultSize={layout?.defaultSize ?? FALLBACK_PANE_SIZE}
+              rowHeight={layout?.height ?? FALLBACK_PANE_SIZE.height}
+              session={getSession(sessionId)}
+              directory={getModelDirectory(sessionId)}
+              listCommands={listCommands}
+              openInMain={openInMain}
+            />,
+            host,
+            sessionId,
+          )
+        })}
       </div>
     </div>
   )

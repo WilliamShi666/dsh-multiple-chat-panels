@@ -253,8 +253,14 @@ export function MiniChatPane({ sessionId, session, directory, listCommands, open
   const [attachments, setAttachments] = useState<readonly PaneAttachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const subscribeSession = useMemo(
+    () => session === undefined
+      ? () => () => {}
+      : (listener: () => void) => session.subscribe(listener),
+    [session],
+  )
   const snapshot: ConversationSnapshot | null = useSyncExternalStore(
-    session?.subscribe ?? (() => () => {}),
+    subscribeSession,
     () => session?.getSnapshot() ?? null,
     () => session?.getSnapshot() ?? null,
   )
