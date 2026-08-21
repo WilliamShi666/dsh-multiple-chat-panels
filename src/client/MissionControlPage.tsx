@@ -16,8 +16,8 @@
  */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionFace, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ModelDirectory } from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import { PANE_DRAG_MIME } from './drag.ts'
 import { fetchGitInfo, type GitInfo } from './git-info.ts'
@@ -43,10 +43,10 @@ export interface MissionControlPageInjected {
   readonly openInMain: (sessionId: string) => void
 }
 
-/** Full props of the Mission Control main page. */
-export type MissionControlPageProps =
-  PropsRuntime<'main.page'>
-  & InjectFace<MissionControlPageInjected>
+/** Props supplied by either the legacy main-page or official overlay adapter. */
+export interface MissionControlPageProps extends MissionControlPageInjected {
+  readonly useSessions: SnapshotSelectorHook<SessionListState>
+}
 
 const DROP_PREVIEW_CSS = `
 [data-mcp-row].mcp-drop-target {
@@ -80,6 +80,21 @@ const DROP_PREVIEW_CSS = `
   z-index: 10;
 }
 `
+
+function getDocumentLanguage(): string {
+  return typeof document === 'undefined' ? 'en' : document.documentElement.lang || 'en'
+}
+
+function subscribeDocumentLanguage(listener: () => void): () => void {
+  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return () => {}
+  const observer = new MutationObserver(listener)
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] })
+  return () => { observer.disconnect() }
+}
+
+function isChineseLanguage(language: string): boolean {
+  return language.toLowerCase().split('-')[0] === 'zh'
+}
 
 interface GridViewport {
   readonly width: number
@@ -667,6 +682,7 @@ function PortalPane({
 export function MissionControlPage({
   useSessions, getSession, getModelDirectory, listCommands, openInMain,
 }: MissionControlPageProps) {
+  const uiLanguage = useSyncExternalStore(subscribeDocumentLanguage, getDocumentLanguage, () => 'en')
   const sessions = useSessions(s => s)
   // Row/height changes keep the pane list reference identical, so this
   // revision subscription is the render trigger for row re-parenting.
@@ -682,7 +698,7 @@ export function MissionControlPage({
   const availableKey = availableIds.join('\u0000')
   const [selected, setSelected] = useState('')
   useEffect(() => {
-    if (selected !== '' && availableIds.includes(selected)) return
+    if (selected !== '' && availableIds.includes(selected as SessionId)) return
     setSelected(availableIds[0] ?? '')
     // The key is the real dependency; availableIds is derived from it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -828,7 +844,9 @@ export function MissionControlPage({
       >
         {panes.length === 0 ? (
           <p style={{ color: 'var(--dsw-alias-label-primary-dimmed, #656d76)', margin: 0 }}>
-            Drag a conversation here to start a multi-pane view.
+            {isChineseLanguage(uiLanguage)
+              ? '将左侧边栏中的对话拖到这里，即可开始多对话窗口视图。'
+              : 'Drag a conversation here to start a multi-pane view.'}
           </p>
         ) : rowNumbers.map((row, index) => (
           <PaneRow
@@ -844,7 +862,7 @@ export function MissionControlPage({
           if (host === undefined) return null
           const row = getPaneRow(sessionId)
           const layout = rowLayout.get(row)
-          const summary = sessions.byId[sessionId]
+          const summary = sessions.byId[sessionId as SessionId]
           return createPortal(
             <PortalPane
               sessionId={sessionId}

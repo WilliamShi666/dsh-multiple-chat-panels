@@ -50,8 +50,10 @@ interface PaneAttachment {
 
 let attachmentSeq = 0
 
-function imageMediaType(value: string): string {
-  if ((IMAGE_MEDIA_TYPES as readonly string[]).includes(value)) return value
+function imageMediaType(value: string): (typeof IMAGE_MEDIA_TYPES)[number] {
+  if ((IMAGE_MEDIA_TYPES as readonly string[]).includes(value)) {
+    return value as (typeof IMAGE_MEDIA_TYPES)[number]
+  }
   throw new Error(`unsupported image media type: ${value || '(empty)'}`)
 }
 

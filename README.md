@@ -16,12 +16,18 @@ multiple-chat-panels 把这种体验带到了 DeepSeek Harness：你只需把左
 
 ![DeepSeek Harness multi-chat panels in light mode](docs/screenshots/light.jpg)
 
-## v0.1.0 updates / v0.1.0 更新
+## v0.1.1 updates / v0.1.1 更新
 
-- Adapted for DeepSeek Harness v0.1.1-rc.1.
+- Adapted for DeepSeek Harness v0.1.1-rc.2.
+- Runtime shell adapter supports both the original client's
+  `sidebar.primary.action` + `main.page` layout and the official Harness
+  `sidebar.footer.action` + `shell.overlay` layout.
 - Cross-row pane moves now preserve the live conversation view instead of rebuilding it, making drag-and-drop noticeably more responsive for long chats.
 
-- 已适配 DeepSeek Harness v0.1.1-rc.1。
+- 已适配 DeepSeek Harness v0.1.1-rc.2。
+- 运行时外壳适配器同时支持原客户端的 `sidebar.primary.action` +
+  `main.page` 布局，以及 Harness 官方版的 `sidebar.footer.action` +
+  `shell.overlay` 布局。
 - 跨行拖拽面板时会保留原有对话视图，不再重建长对话内容，拖拽响应速度明显提升。
 
 ## 安装
