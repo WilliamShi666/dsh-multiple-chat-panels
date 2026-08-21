@@ -18,10 +18,10 @@ multiple-chat-panels 把这种体验带到了 DeepSeek Harness：你只需把左
 
 ## v0.1.0 updates / v0.1.0 更新
 
-- Updated for the latest DeepSeek Harness client API.
+- Adapted for DeepSeek Harness v0.1.1-rc.1.
 - Cross-row pane moves now preserve the live conversation view instead of rebuilding it, making drag-and-drop noticeably more responsive for long chats.
 
-- 已适配最新的 DeepSeek Harness 客户端 API。
+- 已适配 DeepSeek Harness v0.1.1-rc.1。
 - 跨行拖拽面板时会保留原有对话视图，不再重建长对话内容，拖拽响应速度明显提升。
 
 ## 安装
