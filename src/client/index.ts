@@ -78,7 +78,7 @@ function rowForDrop(grid: Element, clientY: number): PaneRow {
 
 /** Clear any drag-over row preview class left by a cancelled drag. */
 function clearDropPreview(): void {
-  const grid = document.querySelector('[data-mcp-grid]')
+  const grid = document.querySelector<HTMLElement>('[data-mcp-grid]')
   if (grid !== null) {
     delete grid.dataset.mcpNewRow
     for (const row of grid.querySelectorAll(':scope > [data-mcp-row]')) {
@@ -137,7 +137,7 @@ export function apply(ctx: ClientContext): void {
     if (!event.dataTransfer.types.includes('text/plain') && !event.dataTransfer.types.includes(PANE_DRAG_MIME)) return
     event.preventDefault()
     if (!event.dataTransfer.types.includes(PANE_DRAG_MIME)) return
-    const grid = document.querySelector('[data-mcp-grid]')
+    const grid = document.querySelector<HTMLElement>('[data-mcp-grid]')
     if (grid === null) return
     const row = rowForDrop(grid, event.clientY)
     for (const rowElement of grid.querySelectorAll(':scope > [data-mcp-row]')) {
@@ -174,7 +174,7 @@ export function apply(ctx: ClientContext): void {
     event.preventDefault()
     clearDropPreview()
     const current = ctx.sessions.list.getSnapshot().current
-    const grid = document.querySelector('[data-mcp-grid]')
+    const grid = document.querySelector<HTMLElement>('[data-mcp-grid]')
     if (grid === null) {
       // First drop opens Mission Control: keep the current session and put
       // the dragged session left or right of it based on the drop point.

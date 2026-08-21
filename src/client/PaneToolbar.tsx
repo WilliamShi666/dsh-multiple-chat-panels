@@ -8,7 +8,7 @@ import React, { useEffect, useMemo, useState, useSyncExternalStore } from 'react
 import type {
   ModelProviderGroup, ModelSelection,
 } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ObservableSnapshot, SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ModelDirectory, ModelDirectoryState,
 } from '@deepseek-ai/dsh-client-ui-model-selection/client'
@@ -49,7 +49,12 @@ function modelKey(providerId: string, modelId: string): string {
 function groupModels(groups: readonly ModelProviderGroup[]): ReadonlyArray<{ provider: string; modelId: string; name: string; reasoningEfforts: readonly string[]; defaultEffort: string | undefined }> {
   const rows: Array<{ provider: string; modelId: string; name: string; reasoningEfforts: readonly string[]; defaultEffort: string | undefined }> = []
   for (const group of groups) {
-    for (const model of group.models) {
+    const models = (group.models ?? []) as ReadonlyArray<{
+      id: string
+      name: string
+      reasoning?: { efforts: ReadonlyArray<{ id: string }>; defaultEffort?: string }
+    }>
+    for (const model of models) {
       rows.push({
         provider: group.id,
         modelId: model.id,
@@ -72,8 +77,8 @@ function permissionLabel(value: string, name: string): string {
 
 /** Compact toolbar for the per-pane permission/model/thinking choices. */
 export function PaneToolbar({ session, directory }: PaneToolbarProps) {
-  const permissionFace = session.projections.faceOf('permissions')
-  const permission = useObservable(permissionFace, undefined as PermissionSelect | undefined)
+  const permissionFace = session.projections.faceOf('permissions') as unknown as ObservableSnapshot<PermissionSelect | undefined> | undefined
+  const permission = useObservable(permissionFace, undefined)
   const models = useObservable(directory?.store, EMPTY_MODELS)
   const [error, setError] = useState<string | null>(null)
 
@@ -184,7 +189,7 @@ export function PaneToolbar({ session, directory }: PaneToolbarProps) {
           {models.current === null && <option value="">Loading…</option>}
           {models.groups.map(group => (
             <optgroup key={group.id} label={group.name}>
-              {group.models.map(model => (
+              {(group.models as ReadonlyArray<{ id: string; name: string }>).map(model => (
                 <option key={modelKey(group.id, model.id)} value={modelKey(group.id, model.id)}>{model.name}</option>
               ))}
             </optgroup>

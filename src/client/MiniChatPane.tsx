@@ -10,7 +10,6 @@
  * toolbar, and a bottom-anchored composer so it stays usable at pane scale.
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelDirectory } from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {
@@ -84,7 +83,7 @@ const PANE_CSS = `
 [data-mcp-chat] p:last-child { margin-bottom: 0; }
 `
 
-function textBlocksText(content: { readonly type: string; readonly text?: string }[]): string {
+function textBlocksText(content: readonly { readonly type: string; readonly text?: string }[]): string {
   return content.map(block => block.type === 'text' && block.text !== undefined ? block.text : '').join('')
 }
 
@@ -254,13 +253,11 @@ export function MiniChatPane({ sessionId, session, directory, listCommands, open
   const [attachments, setAttachments] = useState<readonly PaneAttachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const useSessionSnapshot = useMemo(
-    () => (session === undefined ? null : bindSnapshotSelector(session)),
-    [session],
+  const snapshot: ConversationSnapshot | null = useSyncExternalStore(
+    session?.subscribe ?? (() => () => {}),
+    () => session?.getSnapshot() ?? null,
+    () => session?.getSnapshot() ?? null,
   )
-  const snapshot: ConversationSnapshot | null = useSessionSnapshot === null
-    ? null
-    : useSessionSnapshot(s => s)
 
   useEffect(() => {
     if (session === undefined) return
@@ -566,6 +563,9 @@ export function MiniChatPane({ sessionId, session, directory, listCommands, open
                   {node.kind === 'turn-error' ? node.message : 'Turn stopped by the output-token limit'}
                 </div>
               )
+            }
+            if (node.kind !== 'user' && node.kind !== 'steering' && node.kind !== 'context') {
+              return null
             }
             return (
               <div
