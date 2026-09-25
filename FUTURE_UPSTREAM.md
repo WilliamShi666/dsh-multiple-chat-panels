@@ -26,6 +26,11 @@
 
 **现状**：`@deepseek-ai/dsh-client-web-react` 的 `SessionProvider` 只跟随当前会话，内置 Conversation 组件未导出且依赖当前会话 provide 机制。插件因此自研了 mini chat 渲染器。
 
+**0.1.5 的改善**：转录内容已经可以从公开的 Conversation assembly 读取
+（`ctx.uiConversation.binding(id).target('chat')`，其 `legacy.nodes` / `legacy.partial`
+即扁平的节点列表），插件不再依赖 `SessionFace` 的内部快照字段。因此本项诉求收窄为：
+**内置 Conversation 组件本身**仍无法按 `sessionId` 复用。
+
 **希望上游提供**：一个可指定 `sessionId` 的 `SessionPaneProvider` / per-session `SessionProvideInfo`，让插件未来可以直接复用内置 Conversation 组件，减少自研渲染器的维护成本。
 
 ## 4. 其他可讨论项

@@ -16,6 +16,25 @@ multiple-chat-panels 把这种体验带到了 DeepSeek Harness：你只需把左
 
 ![DeepSeek Harness multi-chat panels in light mode](docs/screenshots/light.jpg)
 
+## v0.1.2 updates / v0.1.2 更新
+
+- Adapted for DeepSeek Harness v0.1.5-rc.2.
+- Fixed drop-to-open: the centre conversation column moved to
+  `[data-dsh-center-col]`, so the previous anchor made every drag silently do
+  nothing. All three shell generations are now recognised.
+- Read the transcript from the Conversation assembly
+  (`uiConversation.binding(id).target('chat')`) instead of the session snapshot,
+  which now carries lifecycle state only.
+- Pass the `labels` that `MarkdownText` requires, so panes no longer crash on
+  their first code block.
+
+- 已适配 DeepSeek Harness v0.1.5-rc.2。
+- 修复拖拽无效：中央对话列改用 `[data-dsh-center-col]`，旧锚点导致拖拽被静默忽略；
+  现在同时兼容三代外壳。
+- 对话内容改从 Conversation assembly
+  （`uiConversation.binding(id).target('chat')`）读取，会话快照现在只承载生命周期状态。
+- 补齐 `MarkdownText` 必需的 `labels`，面板不再在首个代码块处崩溃。
+
 ## v0.1.1 updates / v0.1.1 更新
 
 - Adapted for DeepSeek Harness v0.1.1-rc.2.

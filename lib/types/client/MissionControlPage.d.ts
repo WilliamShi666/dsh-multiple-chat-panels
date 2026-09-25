@@ -15,9 +15,10 @@
  * being clamped at the row boundary.
  */
 import React from 'react';
-import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
-import type { SessionFace } from '@deepseek-ai/dsh-client-runtime/client';
+import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots';
+import type { SessionFace, SessionListState } from '@deepseek-ai/dsh-client-runtime/client';
 import type { ModelDirectory } from '@deepseek-ai/dsh-client-ui-model-selection/client';
+import { type PaneChatObservable } from './MiniChatPane.tsx';
 /** One host slash command surfaced in the pane input menu. */
 export interface PaneCommand {
     readonly name: string;
@@ -27,11 +28,20 @@ export interface PaneCommand {
 /** Registration-side page face: resolves session services for panes. */
 export interface MissionControlPageInjected {
     readonly getSession: (sessionId: string) => SessionFace | undefined;
+    /**
+     * Resolve one session's assembled Chat view.
+     *
+     * Absent on shells that predate the Conversation assembly; panes then render
+     * their empty state instead of a transcript.
+     */
+    readonly getChat: (sessionId: string) => PaneChatObservable | undefined;
     readonly getModelDirectory: (sessionId: string) => ModelDirectory | undefined;
     readonly listCommands: (sessionId: string) => Promise<readonly PaneCommand[]>;
     readonly openInMain: (sessionId: string) => void;
 }
-/** Full props of the Mission Control main page. */
-export type MissionControlPageProps = PropsRuntime<'main.page'> & InjectFace<MissionControlPageInjected>;
+/** Props supplied by either the legacy main-page or official overlay adapter. */
+export interface MissionControlPageProps extends MissionControlPageInjected {
+    readonly useSessions: SnapshotSelectorHook<SessionListState>;
+}
 /** Mission Control page with a row-based pane layout. */
-export declare function MissionControlPage({ useSessions, getSession, getModelDirectory, listCommands, openInMain, }: MissionControlPageProps): React.JSX.Element;
+export declare function MissionControlPage({ useSessions, getSession, getChat, getModelDirectory, listCommands, openInMain, }: MissionControlPageProps): React.JSX.Element;
