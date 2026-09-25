@@ -6,15 +6,15 @@ Terminal-native Agents (like Claude Code) give you a “god’s-eye view”: you
 
 在终端里使用 TUI 形态的 Agent（例如 Claude Code），你会获得一种“一览众山小”的上帝视角：可以同时查看和操控多个对话窗口，并与多个 Agent 并行互动。但很多桌面端或网页端的 Harness 并不支持这种能力：要么只能在一个对话里和一个 Agent 交互，要么即使支持多 Agent / 多窗口，操作也非常繁琐。
 
-![Claude Code in a terminal with multiple conversation panes](docs/screenshots/claude-code-terminal.jpg)
+![Claude Code in a terminal with multiple conversation panes](https://raw.githubusercontent.com/WilliamShi666/dsh-multiple-chat-panels/main/docs/screenshots/claude-code-terminal.jpg)
 
 multiple-chat-panels brings that same experience to DeepSeek Harness. Drag conversations from the left sidebar into the center area, and Mission Control opens with each session as a live, independently interactive panel. With this “god’s-eye view”, you can significantly improve how you interact with multiple Agents and how you handle multitasking, all without leaving your desktop or web UI. Available in both dark and light mode.
 
 multiple-chat-panels 把这种体验带到了 DeepSeek Harness：你只需把左侧边栏里的对话拖到中间区域，Mission Control 就会把每个会话展开为一个可实时交互的独立面板。有了这样“一览众山小”的上帝视角，你可以显著提升与多个 Agent 的交互能力，以及多任务（multitasking）的执行能力；无需离开桌面端或网页端 UI。支持深色与浅色模式。
 
-![DeepSeek Harness multi-chat panels in dark mode](docs/screenshots/dark.jpg)
+![DeepSeek Harness multi-chat panels in dark mode](https://raw.githubusercontent.com/WilliamShi666/dsh-multiple-chat-panels/main/docs/screenshots/dark.jpg)
 
-![DeepSeek Harness multi-chat panels in light mode](docs/screenshots/light.jpg)
+![DeepSeek Harness multi-chat panels in light mode](https://raw.githubusercontent.com/WilliamShi666/dsh-multiple-chat-panels/main/docs/screenshots/light.jpg)
 
 ## v0.1.2 updates / v0.1.2 更新
 
@@ -62,6 +62,21 @@ dsh plugin --profile web add github:WilliamShi666/dsh-multiple-chat-panels
 ```
 
 安装后重启 DSH，把侧边栏中的会话拖到中间区域即可打开 Mission Control。
+
+## 兼容性 / Compatibility
+
+| 插件版本 / Plugin | 适配的 DeepSeek Harness / Harness |
+| --- | --- |
+| `0.1.2` | **v0.1.5-rc.2** 及以上 / and newer —— 面板转录读取自该版本引入的 Conversation assembly |
+| `0.1.1` | v0.1.1-rc.2 —— 在 v0.1.5-rc.2 上拖拽无响应（中央列锚点已变更） / dragging does nothing on v0.1.5-rc.2 |
+
+上面的安装命令装的是 `latest`。**如果你的 DSH 低于 v0.1.5-rc.2，请显式安装旧版本**，否则面板会一直停在 `Loading session …`：
+
+The command above installs `latest`. **On a Harness older than v0.1.5-rc.2, pin the older version**, or panes stay on `Loading session …`:
+
+```bash
+dsh plugin --profile web add multiple-chat-panels@0.1.1
+```
 
 ## 链接
 
