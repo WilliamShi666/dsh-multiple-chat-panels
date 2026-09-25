@@ -13,11 +13,12 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncEx
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelDirectory } from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {
-  AssistantBlock, CommandNode, ConversationNode, ConversationSnapshot, PartialAssistant, SessionFace, ToolResultNode,
+  AssistantBlock, CommandNode, ConversationNode, PartialAssistant, SessionFace, SessionSnapshot, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   getComposerHeight, MAX_COMPOSER_HEIGHT, MIN_COMPOSER_HEIGHT, setComposerHeight, subscribePanes,
 } from './pane-store.ts'
+import { useMarkdownLabels, type MarkdownLabels } from './language.ts'
 import { PaneToolbar } from './PaneToolbar.tsx'
 
 /** One host slash command surfaced in the pane input menu. */
@@ -27,9 +28,47 @@ export interface PaneCommand {
   readonly hint?: string
 }
 
+/**
+ * Read face of one session's assembled Chat view.
+ *
+ * DSH 0.1.5 moved conversation content out of `SessionFace` into the
+ * Conversation assembly: `SessionSnapshot` now carries lifecycle and control
+ * state only, while the transcript lives behind a per-target view. The Chat
+ * view exposes the materialized transcript under `legacy`, which is the flat
+ * node list this pane renders. Declared structurally so the pane does not
+ * depend on a package that only newer shells ship.
+ */
+export interface PaneChatSnapshot {
+  readonly legacy: {
+    readonly nodes: readonly ConversationNode[]
+    readonly partial: PartialAssistant | null
+  }
+}
+
+/** Observable source of one session's Chat view snapshot (getSnapshot + subscribe). */
+export interface PaneChatObservable {
+  /** @returns the current snapshot, or the stable empty value before materialization. */
+  readonly getSnapshot: () => PaneChatSnapshot
+  readonly subscribe: (listener: () => void) => () => void
+}
+
+/**
+ * Stable empty Chat snapshot.
+ *
+ * `useSyncExternalStore` compares snapshots by identity, so a source must never
+ * hand back a freshly built object for an unmaterialized target — that spins
+ * the render loop. The shell's own Chat consumer falls back to a frozen
+ * constant for exactly this reason.
+ */
+export const EMPTY_CHAT_SNAPSHOT: PaneChatSnapshot = {
+  legacy: { nodes: [], partial: null },
+}
+
 interface MiniChatPaneProps {
   readonly sessionId: string
   readonly session: SessionFace | undefined
+  /** Chat view snapshot; absent on shells that predate the Conversation assembly. */
+  readonly chat: PaneChatObservable | undefined
   readonly directory: ModelDirectory | undefined
   readonly listCommands: (sessionId: string) => Promise<readonly PaneCommand[]>
   readonly openInMain: () => void
@@ -107,9 +146,10 @@ function visibleNodes(nodes: readonly ConversationNode[]): ConversationNode[] {
 }
 
 /** In-progress or final assistant blocks, rendered with the Harness markdown pipeline. */
-function AssistantBlocksView({ blocks, streaming = false }: {
+function AssistantBlocksView({ blocks, streaming = false, labels }: {
   blocks: readonly AssistantBlock[]
   streaming?: boolean
+  labels: MarkdownLabels
 }) {
   return (
     <>
@@ -117,7 +157,7 @@ function AssistantBlocksView({ blocks, streaming = false }: {
         const key = `${block.kind}-${index}`
         switch (block.kind) {
           case 'text':
-            return <MarkdownText key={key} text={block.text} streaming={streaming} />
+            return <MarkdownText key={key} text={block.text} streaming={streaming} labels={labels} />
           case 'reasoning':
             return (
               <details
@@ -133,7 +173,7 @@ function AssistantBlocksView({ blocks, streaming = false }: {
                 <summary style={{ cursor: 'pointer', color: 'var(--dsw-alias-label-primary-dimmed, #656d76)', fontSize: 12 }}>
                   Reasoning
                 </summary>
-                <div style={{ marginTop: 6 }}><MarkdownText text={block.text} /></div>
+                <div style={{ marginTop: 6 }}><MarkdownText text={block.text} labels={labels} /></div>
               </details>
             )
           case 'tool-call':
@@ -234,7 +274,7 @@ function CommandCard({ node }: { node: CommandNode }) {
 }
 
 /** Render one session's conversation with an input box and live controls. */
-export function MiniChatPane({ sessionId, session, directory, listCommands, openInMain }: MiniChatPaneProps) {
+export function MiniChatPane({ sessionId, session, chat, directory, listCommands, openInMain }: MiniChatPaneProps) {
   const [draft, setDraft] = useState('')
   const [commands, setCommands] = useState<readonly PaneCommand[]>([])
   const [slashIndex, setSlashIndex] = useState(0)
@@ -261,10 +301,23 @@ export function MiniChatPane({ sessionId, session, directory, listCommands, open
       : (listener: () => void) => session.subscribe(listener),
     [session],
   )
-  const snapshot: ConversationSnapshot | null = useSyncExternalStore(
+  /** Session lifecycle/control state: running, queue, paging, pending echoes. */
+  const snapshot: SessionSnapshot | null = useSyncExternalStore(
     subscribeSession,
     () => session?.getSnapshot() ?? null,
     () => session?.getSnapshot() ?? null,
+  )
+  const subscribeChat = useMemo(
+    () => chat === undefined
+      ? () => () => {}
+      : (listener: () => void) => chat.subscribe(listener),
+    [chat],
+  )
+  /** Assembled transcript for this session: materialized nodes and streaming partial. */
+  const chatSnapshot: PaneChatSnapshot | undefined = useSyncExternalStore(
+    subscribeChat,
+    () => chat === undefined ? undefined : chat.getSnapshot(),
+    () => undefined,
   )
 
   useEffect(() => {
@@ -425,7 +478,7 @@ export function MiniChatPane({ sessionId, session, directory, listCommands, open
 
   useEffect(() => {
     if (atBottomRef.current) scrollToBottom(false)
-  }, [snapshot])
+  }, [snapshot, chatSnapshot])
 
   const startComposerResize = (event: React.PointerEvent<HTMLDivElement>): void => {
     const composer = composerRef.current
@@ -461,12 +514,13 @@ export function MiniChatPane({ sessionId, session, directory, listCommands, open
     if (commit && height !== null && height !== start.startHeight) setComposerHeight(sessionId, height)
   }
 
-  const nodes = snapshot === null ? [] : visibleNodes(snapshot.nodes)
-  const partial: PartialAssistant | null = snapshot?.partial ?? null
+  const nodes = chatSnapshot === undefined ? [] : visibleNodes(chatSnapshot.legacy.nodes)
+  const partial: PartialAssistant | null = chatSnapshot?.legacy.partial ?? null
   const running = snapshot?.running ?? false
   const hasMore = snapshot?.hasMore ?? false
   const queue = snapshot?.queue ?? []
-  const pendingCount = snapshot?.pending.length ?? 0
+  const pendingCount = snapshot?.pendingSubmissions.length ?? 0
+  const markdownLabels = useMarkdownLabels()
 
   return (
     <div
@@ -533,7 +587,7 @@ export function MiniChatPane({ sessionId, session, directory, listCommands, open
             Load older
           </button>
         )}
-        {snapshot === null ? (
+        {snapshot === null || chatSnapshot === undefined ? (
           <div style={{ color: 'var(--dsw-alias-label-primary-dimmed, #656d76)' }}>
             Loading session {sessionId}…
           </div>
@@ -555,7 +609,7 @@ export function MiniChatPane({ sessionId, session, directory, listCommands, open
                     lineHeight: 1.6,
                   }}
                 >
-                  <AssistantBlocksView blocks={node.blocks} />
+                  <AssistantBlocksView blocks={node.blocks} labels={markdownLabels} />
                 </div>
               )
             }
@@ -592,7 +646,7 @@ export function MiniChatPane({ sessionId, session, directory, listCommands, open
                   lineHeight: 1.6,
                 }}
               >
-                <MarkdownText text={textBlocksText(node.content)} />
+                <MarkdownText text={textBlocksText(node.content)} labels={markdownLabels} />
               </div>
             )
           })
@@ -606,7 +660,7 @@ export function MiniChatPane({ sessionId, session, directory, listCommands, open
               lineHeight: 1.6,
             }}
           >
-            <AssistantBlocksView blocks={partial.blocks} streaming />
+            <AssistantBlocksView blocks={partial.blocks} streaming labels={markdownLabels} />
           </div>
         )}
         {queue.length > 0 && (

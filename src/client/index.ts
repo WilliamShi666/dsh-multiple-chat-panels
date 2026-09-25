@@ -14,6 +14,8 @@ import type { SlotMap } from '@deepseek-ai/dsh-client-ui-slots'
 import { MissionControlNav, type MissionControlNavInjected } from './MissionControlNav.tsx'
 import { MissionControlOverlay, type MissionControlOverlayProps } from './MissionControlOverlay.tsx'
 import { MissionControlPage, type MissionControlPageInjected } from './MissionControlPage.tsx'
+import type { PaneChatObservable, PaneChatSnapshot } from './MiniChatPane.tsx'
+import { EMPTY_CHAT_SNAPSHOT } from './MiniChatPane.tsx'
 import { PANE_DRAG_MIME } from './drag.ts'
 import { createMissionControlNavigation } from './navigation.ts'
 import { getPaneSize, PANE_GAP, placePane, type PaneRow } from './pane-store.ts'
@@ -22,6 +24,11 @@ export const PAGE_ID = 'mission-control'
 
 export const inject = ['slots', 'layout', 'sessions', 'modelDirectories', 'remote', 'remote.commands']
 
+/** Minimal face of the shell's Conversation assembly service (`ctx.uiConversation`). */
+interface UiConversationFace {
+  binding(source: unknown): { target(name: string): unknown }
+}
+
 type DynamicSlotKey = keyof SlotMap & string
 
 interface LegacyLayout {
@@ -29,7 +36,21 @@ interface LegacyLayout {
   readonly closePrimaryPage?: () => void
 }
 
-/** A drop belongs to an open grid, the legacy center, or the official center column. */
+/**
+ * A drop belongs to an open grid, the legacy center, or the current center column.
+ *
+ * Three shell generations are recognised, tried from the most specific to the
+ * most generic so a drop is still accepted when one generation's anchor is
+ * absent:
+ *  - an open Mission Control grid owns the drop;
+ *  - the pre-0.1.1 shell's `centerSurface` class;
+ *  - the 0.1.1-era `[data-slot="conversation"]` inside a collapsible center;
+ *  - the current shell, whose conversation column is `[data-dsh-center-col]`.
+ *
+ * The last case deliberately does not require any particular attribute on an
+ * ancestor: DSH has already moved this anchor once, and the conversation column
+ * is the element that actually receives the drop.
+ */
 function dropSurface(target: EventTarget | null): Element | null {
   if (!(target instanceof Element)) return null
   const grid = target.closest('[data-mcp-grid]')
@@ -40,9 +61,10 @@ function dropSurface(target: EventTarget | null): Element | null {
   if (conversation === null) return null
   const slot = conversation.closest('[data-slot="conversation"]')
   const center = slot?.parentElement
-  return center instanceof HTMLElement && center.parentElement?.hasAttribute('data-details-collapsed') === true
-    ? center
-    : null
+  if (center instanceof HTMLElement && center.parentElement?.hasAttribute('data-details-collapsed') === true) {
+    return center
+  }
+  return conversation.closest('[data-dsh-center-col]')
 }
 
 function gridRowElement(grid: Element, row: PaneRow): Element | null {
@@ -114,6 +136,8 @@ export function apply(ctx: ClientContext): void {
   const navigation = createMissionControlNavigation()
   const layout = ctx.layout as LegacyLayout
   const legacyShell = typeof layout.openPrimaryPage === 'function'
+  /** One identity-stable Chat source per session, so pane subscriptions never churn. */
+  const chatSources = new Map<string, PaneChatObservable>()
   const open = (): void => {
     if (typeof layout.openPrimaryPage === 'function') layout.openPrimaryPage(PAGE_ID)
     else navigation.open()
@@ -124,6 +148,37 @@ export function apply(ctx: ClientContext): void {
   }
   const pageFace = (): MissionControlPageInjected => ({
     getSession: (sessionId) => ctx.sessions.binding(sessionId as SessionId)?.session,
+    getChat: (sessionId) => {
+      const cached = chatSources.get(sessionId)
+      if (cached !== undefined) return cached
+      try {
+        // Resolved per call rather than declared as a hard dependency: the
+        // Conversation assembly is a shell service that older and newer builds
+        // may name differently, and losing it must degrade one pane to its
+        // empty state rather than block Mission Control from loading at all.
+        const uiConversation = (ctx as unknown as { get?(name: string): unknown })
+          .get?.('uiConversation') as UiConversationFace | undefined
+        if (uiConversation === undefined) return undefined
+        const sessionBinding = ctx.sessions.binding(sessionId as SessionId)
+        if (sessionBinding === undefined) return undefined
+        const target = uiConversation.binding(sessionBinding).target('chat') as {
+          getSnapshot(): PaneChatSnapshot | undefined
+          subscribe(listener: () => void): () => void
+        }
+        // Subscribing activates per-session assembly, which is what makes a
+        // non-current session render live rather than static. The snapshot must
+        // fall back to one frozen constant: useSyncExternalStore compares by
+        // identity, so building a fresh object per read spins the render loop.
+        const source: PaneChatObservable = {
+          getSnapshot: () => target.getSnapshot() ?? EMPTY_CHAT_SNAPSHOT,
+          subscribe: (listener) => target.subscribe(listener),
+        }
+        chatSources.set(sessionId, source)
+        return source
+      } catch {
+        return undefined
+      }
+    },
     getModelDirectory: (sessionId): ModelDirectory | undefined => {
       try {
         return ctx.modelDirectories.directoryFor(sessionId as SessionId)

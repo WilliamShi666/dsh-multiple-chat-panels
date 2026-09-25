@@ -21,12 +21,13 @@ import type { SessionFace, SessionId, SessionListState } from '@deepseek-ai/dsh-
 import type { ModelDirectory } from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import { PANE_DRAG_MIME } from './drag.ts'
 import { fetchGitInfo, type GitInfo } from './git-info.ts'
+import { getDocumentLanguage, isChineseLanguage, subscribeDocumentLanguage } from './language.ts'
 import {
   addPane, FALLBACK_PANE_SIZE, getPaneRevision, getPaneRow, getPaneSize, getPanes,
   MIN_PANE_HEIGHT, MIN_PANE_WIDTH, PANE_GAP, reflowRows, removePane, setPaneSize,
   subscribePanes, type PaneRow, type PaneSize,
 } from './pane-store.ts'
-import { MiniChatPane } from './MiniChatPane.tsx'
+import { MiniChatPane, type PaneChatObservable } from './MiniChatPane.tsx'
 
 /** One host slash command surfaced in the pane input menu. */
 export interface PaneCommand {
@@ -38,6 +39,13 @@ export interface PaneCommand {
 /** Registration-side page face: resolves session services for panes. */
 export interface MissionControlPageInjected {
   readonly getSession: (sessionId: string) => SessionFace | undefined
+  /**
+   * Resolve one session's assembled Chat view.
+   *
+   * Absent on shells that predate the Conversation assembly; panes then render
+   * their empty state instead of a transcript.
+   */
+  readonly getChat: (sessionId: string) => PaneChatObservable | undefined
   readonly getModelDirectory: (sessionId: string) => ModelDirectory | undefined
   readonly listCommands: (sessionId: string) => Promise<readonly PaneCommand[]>
   readonly openInMain: (sessionId: string) => void
@@ -81,20 +89,6 @@ const DROP_PREVIEW_CSS = `
 }
 `
 
-function getDocumentLanguage(): string {
-  return typeof document === 'undefined' ? 'en' : document.documentElement.lang || 'en'
-}
-
-function subscribeDocumentLanguage(listener: () => void): () => void {
-  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return () => {}
-  const observer = new MutationObserver(listener)
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] })
-  return () => { observer.disconnect() }
-}
-
-function isChineseLanguage(language: string): boolean {
-  return language.toLowerCase().split('-')[0] === 'zh'
-}
 
 interface GridViewport {
   readonly width: number
@@ -640,7 +634,7 @@ const StableMiniChatPane = React.memo(MiniChatPane)
 /** Pane frame rendered into a stable host that can move between row containers. */
 function PortalPane({
   sessionId, title, cwd, row, defaultSize, rowHeight,
-  session, directory, listCommands, openInMain,
+  session, chat, directory, listCommands, openInMain,
 }: {
   readonly sessionId: string
   readonly title: string
@@ -649,6 +643,7 @@ function PortalPane({
   readonly defaultSize: PaneSize
   readonly rowHeight: number
   readonly session: SessionFace | undefined
+  readonly chat: PaneChatObservable | undefined
   readonly directory: ModelDirectory | undefined
   readonly listCommands: (sessionId: string) => Promise<readonly PaneCommand[]>
   readonly openInMain: (sessionId: string) => void
@@ -670,6 +665,7 @@ function PortalPane({
       <StableMiniChatPane
         sessionId={sessionId}
         session={session}
+        chat={chat}
         directory={directory}
         listCommands={listCommands}
         openInMain={openSingle}
@@ -680,7 +676,7 @@ function PortalPane({
 
 /** Mission Control page with a row-based pane layout. */
 export function MissionControlPage({
-  useSessions, getSession, getModelDirectory, listCommands, openInMain,
+  useSessions, getSession, getChat, getModelDirectory, listCommands, openInMain,
 }: MissionControlPageProps) {
   const uiLanguage = useSyncExternalStore(subscribeDocumentLanguage, getDocumentLanguage, () => 'en')
   const sessions = useSessions(s => s)
@@ -872,6 +868,7 @@ export function MissionControlPage({
               defaultSize={layout?.defaultSize ?? FALLBACK_PANE_SIZE}
               rowHeight={layout?.height ?? FALLBACK_PANE_SIZE.height}
               session={getSession(sessionId)}
+              chat={getChat(sessionId)}
               directory={getModelDirectory(sessionId)}
               listCommands={listCommands}
               openInMain={openInMain}
