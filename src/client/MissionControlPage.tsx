@@ -17,7 +17,8 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionFace, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SessionFace, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ModelDirectory } from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import { PANE_DRAG_MIME } from './drag.ts'
 import { fetchGitInfo, type GitInfo } from './git-info.ts'
@@ -27,7 +28,8 @@ import {
   MIN_PANE_HEIGHT, MIN_PANE_WIDTH, PANE_GAP, reflowRows, removePane, setPaneSize,
   subscribePanes, type PaneRow, type PaneSize,
 } from './pane-store.ts'
-import { MiniChatPane, type PaneChatObservable } from './MiniChatPane.tsx'
+import { MiniChatPane, type PaneChatObservable, type PaneSessionStatusObservable } from './MiniChatPane.tsx'
+import type { PermissionOption } from './PaneToolbar.tsx'
 
 /** One host slash command surfaced in the pane input menu. */
 export interface PaneCommand {
@@ -46,8 +48,17 @@ export interface MissionControlPageInjected {
    * their empty state instead of a transcript.
    */
   readonly getChat: (sessionId: string) => PaneChatObservable | undefined
+  /**
+   * Session UI status source (pending approvals/plan review).
+   *
+   * Resolved lazily because it only exists on shells with the Session UI
+   * layer; without it a pane simply never shows the open-in-main hint.
+   */
+  readonly getSessionStatus: () => PaneSessionStatusObservable | undefined
   readonly getModelDirectory: (sessionId: string) => ModelDirectory | undefined
   readonly listCommands: (sessionId: string) => Promise<readonly PaneCommand[]>
+  /** Process-wide permission preset catalog shared by every pane toolbar. */
+  readonly listPermissionOptions: () => Promise<readonly PermissionOption[]>
   readonly openInMain: (sessionId: string) => void
 }
 
@@ -634,7 +645,7 @@ const StableMiniChatPane = React.memo(MiniChatPane)
 /** Pane frame rendered into a stable host that can move between row containers. */
 function PortalPane({
   sessionId, title, cwd, row, defaultSize, rowHeight,
-  session, chat, directory, listCommands, openInMain,
+  session, chat, sessionStatus, directory, listCommands, permissionOptions, openInMain,
 }: {
   readonly sessionId: string
   readonly title: string
@@ -644,8 +655,10 @@ function PortalPane({
   readonly rowHeight: number
   readonly session: SessionFace | undefined
   readonly chat: PaneChatObservable | undefined
+  readonly sessionStatus: PaneSessionStatusObservable | undefined
   readonly directory: ModelDirectory | undefined
   readonly listCommands: (sessionId: string) => Promise<readonly PaneCommand[]>
+  readonly permissionOptions: readonly PermissionOption[]
   readonly openInMain: (sessionId: string) => void
 }) {
   const close = useCallback(() => { removePane(sessionId) }, [sessionId])
@@ -666,8 +679,10 @@ function PortalPane({
         sessionId={sessionId}
         session={session}
         chat={chat}
+        sessionStatus={sessionStatus}
         directory={directory}
         listCommands={listCommands}
+        permissionOptions={permissionOptions}
         openInMain={openSingle}
       />
     </ResizablePane>
@@ -676,10 +691,20 @@ function PortalPane({
 
 /** Mission Control page with a row-based pane layout. */
 export function MissionControlPage({
-  useSessions, getSession, getChat, getModelDirectory, listCommands, openInMain,
+  useSessions, getSession, getChat, getSessionStatus, getModelDirectory, listCommands,
+  listPermissionOptions, openInMain,
 }: MissionControlPageProps) {
   const uiLanguage = useSyncExternalStore(subscribeDocumentLanguage, getDocumentLanguage, () => 'en')
   const sessions = useSessions(s => s)
+  /** Process-wide permission presets, loaded once for every pane toolbar. */
+  const [permissionOptions, setPermissionOptions] = useState<readonly PermissionOption[]>([])
+  useEffect(() => {
+    let cancelled = false
+    void listPermissionOptions().then((options) => {
+      if (!cancelled) setPermissionOptions(options)
+    })
+    return () => { cancelled = true }
+  }, [listPermissionOptions])
   // Row/height changes keep the pane list reference identical, so this
   // revision subscription is the render trigger for row re-parenting.
   const paneRevision = useSyncExternalStore(subscribePanes, getPaneRevision, () => 0)
@@ -869,8 +894,10 @@ export function MissionControlPage({
               rowHeight={layout?.height ?? FALLBACK_PANE_SIZE.height}
               session={getSession(sessionId)}
               chat={getChat(sessionId)}
+              sessionStatus={getSessionStatus()}
               directory={getModelDirectory(sessionId)}
               listCommands={listCommands}
+              permissionOptions={permissionOptions}
               openInMain={openInMain}
             />,
             host,

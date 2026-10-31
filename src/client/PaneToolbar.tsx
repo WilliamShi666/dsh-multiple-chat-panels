@@ -8,15 +8,26 @@ import React, { useEffect, useMemo, useState, useSyncExternalStore } from 'react
 import type {
   ModelProviderGroup, ModelSelection,
 } from '@deepseek-ai/dsh-api-remotes/client'
-import type { ObservableSnapshot, SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionFace } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {
   ModelDirectory, ModelDirectoryState,
 } from '@deepseek-ai/dsh-client-ui-model-selection/client'
-import type { PermissionSelect } from '@deepseek-ai/dsh-permission-presets/client'
+
+/** One selectable permission preset from the process catalog. */
+export interface PermissionOption {
+  readonly value: string
+  readonly name: string
+}
+
+/** Whole `permissions` projection: the durable current value only (0.2 shape). */
+interface PermissionSelectionView {
+  readonly currentValue: string
+}
 
 interface PaneToolbarProps {
   readonly session: SessionFace
   readonly directory: ModelDirectory | undefined
+  readonly permissionOptions: readonly PermissionOption[]
 }
 
 const EMPTY_MODELS: ModelDirectoryState = {
@@ -25,6 +36,7 @@ const EMPTY_MODELS: ModelDirectoryState = {
   groups: [],
   failures: [],
   status: 'idle',
+  pending: null,
   error: null,
 }
 
@@ -76,8 +88,9 @@ function permissionLabel(value: string, name: string): string {
 }
 
 /** Compact toolbar for the per-pane permission/model/thinking choices. */
-export function PaneToolbar({ session, directory }: PaneToolbarProps) {
-  const permissionFace = session.projections.faceOf('permissions') as unknown as ObservableSnapshot<PermissionSelect | undefined> | undefined
+export function PaneToolbar({ session, directory, permissionOptions }: PaneToolbarProps) {
+  const permissionFace = session.projections.faceOf('permissions') as unknown as
+    { getSnapshot(): PermissionSelectionView | undefined; subscribe(listener: () => void): () => void } | undefined
   const permission = useObservable(permissionFace, undefined)
   const models = useObservable(directory?.store, EMPTY_MODELS)
   const [error, setError] = useState<string | null>(null)
@@ -158,7 +171,7 @@ export function PaneToolbar({ session, directory }: PaneToolbarProps) {
         flexShrink: 0,
       }}
     >
-      {permission !== undefined && (
+      {permission !== undefined && permissionOptions.length > 0 && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, flex: 1 }}>
           <span style={{ color: 'var(--dsw-alias-label-primary-dimmed, #656d76)', whiteSpace: 'nowrap' }}>Perm</span>
           <select
@@ -168,7 +181,7 @@ export function PaneToolbar({ session, directory }: PaneToolbarProps) {
             onChange={event => selectPermission(event.target.value)}
             style={selectStyle}
           >
-            {permission.options
+            {permissionOptions
               .filter(option => option.value !== 'custom')
               .map(option => (
                 <option key={option.value} value={option.value}>{permissionLabel(option.value, option.name)}</option>

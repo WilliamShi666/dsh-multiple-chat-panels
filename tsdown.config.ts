@@ -2,6 +2,11 @@ import type { UserConfig } from 'tsdown'
 
 const PLUGIN_ID = 'multiple-chat-panels'
 
+/**
+ * Modules the shell seeds into the browser module table. Everything else the
+ * client half imports is type-only (erased at build), so this list is exactly
+ * what `require()` must resolve at runtime.
+ */
 const CLIENT_EXTERNALS = [
   'react',
   'react/jsx-runtime',
@@ -10,7 +15,6 @@ const CLIENT_EXTERNALS = [
   '@deepseek-ai/cordis',
   '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-runtime/client',
 ]
 
 const clientBundle: UserConfig = {

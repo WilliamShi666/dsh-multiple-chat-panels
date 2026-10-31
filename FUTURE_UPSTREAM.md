@@ -2,19 +2,15 @@
 
 本文件记录 multiple-chat-panels 在纯插件实现中使用的“内部 API 桥接”以及希望上游 DeepSeek Harness 公开化的能力。当前官方仓库不接受 PR，但可以在讨论区提出；本文件作为 TODO 和讨论素材。
 
-## 1. 公开 per-session staging / `Session.open()`
+## 1. per-session staging / `Session.open()` —— 0.2 已解决
 
-**现状**：客户端 `SessionRuntime` 是 single-occupant，完整 `session/event` 流只喂给 `list.current`。插件通过 `ctx.sessions.binding(id)` 拿到 `SessionFace` 后，调用了运行时实例上的内部 `open()` 方法（类型上需要一次受控 cast）来加载历史窗口并接收 live 事件。
+**0.1.x 的现状（已结束）**：客户端 `SessionRuntime` 是 single-occupant，完整
+`session/event` 流只喂给 `list.current`。插件通过 `ctx.sessions.binding(id)` 拿到
+`SessionFace` 后，调用了运行时实例上的内部 `open()` 方法来加载历史窗口并接收 live 事件。
 
-**风险**：`open()` 不在公开 `ISession` 契约上，未来 DSH 升级可能变化。
-
-**希望上游提供**：
-
-- 在 `ISession` / `SessionFace` 上公开 `open()` 或等价的 `stage()` / `resume()` 方法；
-- 或提供 per-session provide 机制，让插件可以为任意已列出会话拿到完整的 standard props / 事件窗口；
-- 或将 `SessionRuntime` 的 staged 状态从单一 `current` 扩展为多 pane 集合。
-
-**讨论区提案要点**：多会话 UI（如本插件）需要同时打开多个会话窗口；Host 和 mux 流已经支持 all-session，只是 client runtime 的 staging 限制。
+**0.2 的变化**：`ctx.sessions.retain(target, { source })` 成为公开契约，返回
+`SessionReference` 并自动开始该会话的历史打开；`binding()` 只借用已持有的会话。
+多窗口 UI 现在是受支持的一等用法，插件侧不再需要任何 cast 或内部方法。本项诉求已关闭。
 
 ## 2. 侧边栏会话行菜单扩展点
 
@@ -24,12 +20,14 @@
 
 ## 3. `SessionProvider` 支持 per-session provide
 
-**现状**：`@deepseek-ai/dsh-client-web-react` 的 `SessionProvider` 只跟随当前会话，内置 Conversation 组件未导出且依赖当前会话 provide 机制。插件因此自研了 mini chat 渲染器。
+**现状**：内置 Conversation 组件未导出，且依赖当前会话的 provide 机制。插件因此自研了 mini chat 渲染器。
 
-**0.1.5 的改善**：转录内容已经可以从公开的 Conversation assembly 读取
-（`ctx.uiConversation.binding(id).target('chat')`，其 `legacy.nodes` / `legacy.partial`
-即扁平的节点列表），插件不再依赖 `SessionFace` 的内部快照字段。因此本项诉求收窄为：
-**内置 Conversation 组件本身**仍无法按 `sessionId` 复用。
+**0.1.5 / 0.2 的改善**：转录内容可以从公开的 Conversation assembly 读取
+（`ctx.uiConversation.binding(binding).target('chat')`，其 `legacy.nodes` / `legacy.partial`
+即扁平的节点列表），插件不依赖 `SessionFace` 的内部快照字段；
+会话生命周期、队列、权限、模型选择也都有公开读面
+（`SessionSnapshot`、`inbox` / `permissions` projection、`ModelDirectory`）。
+诉求因此收窄为：**内置 Conversation 组件本身**仍无法按 `sessionId` 复用。
 
 **希望上游提供**：一个可指定 `sessionId` 的 `SessionPaneProvider` / per-session `SessionProvideInfo`，让插件未来可以直接复用内置 Conversation 组件，减少自研渲染器的维护成本。
 
@@ -37,3 +35,5 @@
 
 - 网格布局 / tiling 是否需要核心布局服务支持，还是保持插件自绘。
 - git branch/worktree 信息是否值得进入 Workspace/Session 数据模型（目前只是插件 host RPC 展示层增强）。
+- 中央列锚点（`[data-dsh-center-col]` → `[data-slot="main.conversation"]`）缺少稳定的
+  “drop 区域”语义；插件目前靠 `main` 槽位的渲染父元素兜底，希望上游给中央列一个稳定属性。

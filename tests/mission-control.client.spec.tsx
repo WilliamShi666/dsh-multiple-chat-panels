@@ -1,6 +1,12 @@
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+// The published primitives package is a shell-internal bundle whose styling and
+// third-party imports only exist inside the Harness frontend; tests stub the one
+// component the pane renders so jsdom can mount the real pane code.
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
+  MarkdownText: ({ text }: { text: string }) => React.createElement('span', null, text),
+}))
 import { MissionControlPage } from '../src/client/MissionControlPage.tsx'
 import { placePane, setPanes } from '../src/client/pane-store.ts'
 
@@ -46,8 +52,11 @@ describe('MissionControlPage', () => {
       root?.render(React.createElement(MissionControlPage, {
         useSessions: (select: (state: typeof sessions) => unknown) => select(sessions),
         getSession: () => undefined,
+        getChat: () => undefined,
+        getSessionStatus: () => undefined,
         getModelDirectory: () => undefined,
         listCommands: async () => [],
+        listPermissionOptions: async () => [],
         openInMain: () => {},
       } as never))
     })

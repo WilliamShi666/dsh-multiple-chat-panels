@@ -9,14 +9,15 @@
   - reasoning 折叠块、工具调用/工具结果卡片、斜杠命令生命周期卡片，全部**默认折叠**，点击 summary 展开，与单对话模式的收拢语义一致；
   - 流式 partial 输出；
   - 取消当前 turn（运行中只显示 Stop，空闲只显示 Send）；
-  - 队列消息展示与移除；
+  - 队列消息展示与移除（读取会话的 `inbox` projection，兼容 0.2）；
   - 加载更早历史；
   - 输入 `/` 弹出斜杠命令菜单，选中后走 `session.command`；
   - 输入框随内容自动增高，最多 6 行后内部滚动；输入框上边缘可上下拖拽调整高度，并持久化；
   - 支持图片附件：📎 按钮选择文件、拖拽文件到面板、在面板内 `Ctrl/Cmd+V` 或右键粘贴剪贴板图片（同时复制的文字照常进输入框）、缩略图预览与移除，发送时随消息提交（与单对话一致的 PNG/JPEG/WebP/GIF）；
   - 聊天区右下角有“滚动到底”按钮，仅在向上翻看历史时出现；
-  - 审批 / 计划模式等复杂交互显示“open in main conversation”，一键跳回主对话。
-- 每个面板顶部有独立工具栏：权限预设（Perm）、模型（Model）、思考模式（Think），与主对话共享同一份会话状态。
+  - 审批 / 计划模式等待处理时显示“open in main conversation”，一键跳回主对话
+    （跟随 Session UI 状态里该会话的 pending interaction）。
+- 每个面板顶部有独立工具栏：权限预设（Perm）、模型（Model）、思考模式（Think），与主对话共享同一份会话状态；权限选项读进程级目录，模型目录与主对话共用同一份 `ModelDirectory`。
 - 面板信息分两层显示：第一行对话标题，第二行目录 + git branch/worktree（非 git 目录只显示目录名）。
 - 布局为动态行数的横向布局：新面板默认加入第一行；每行超出屏幕宽度时，自动把该行最右的面板递归移到下一行，直到每行都完整可见（2 行、3 行或更多，按需要自动产生）。
 - 面板标题栏原生拖拽（drag image 跟随鼠标）：在同一行内可重排；向下拖到行下方会显示换行预览，松手后创建新行；向上拖回上一行。`⋮⋮` 拖拽把手固定在标题栏水平正中（整条标题栏可拖，按钮除外），右侧 `⤢` 回到单对话按钮与 `×` 关闭按钮之间保持 6px 安全间距。
@@ -56,16 +57,17 @@
 
 - 纯插件无法复用 DSH 内置 Conversation 组件，所以每个 pane 是插件自绘的 mini chat，视觉和交互尽量接近主对话，但复杂功能（审批弹窗、详细设置等）在 pane 内以跳转主对话的方式处理。
 - 行布局由“宽度是否溢出”自动决定，不是完整 tmux/i3 自由分割。
-- 使用了一个受控的内部 API 桥接（`Session.open()`），详见 `FUTURE_UPSTREAM.md`。
+- 面板通过 `ctx.sessions.retain()` 持有会话（0.2 公开契约）；关闭面板即释放。
 
 ## 构建
 
 ```bash
-DSH_CHECKOUT=/path/to/deepseek-harness-studio bash scripts/build.sh
-npm run build:client
+pnpm install
+npm run build        # tsc 编译 host 半 + tsdown 打包 client 半
 ```
 
-或在 DSH 开发环境中使用注入器：
+devDependencies 固定为所适配的 DSH 客户端 API 版本；升级 Harness 时同步更新它们。
+在 DSH 开发环境中也可使用注入器：
 
 ```bash
 dev_build_plugin /path/to/multiple-chat-panels

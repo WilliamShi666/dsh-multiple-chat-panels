@@ -13,13 +13,14 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncEx
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelDirectory } from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {
-  AssistantBlock, CommandNode, ConversationNode, PartialAssistant, SessionFace, SessionSnapshot, ToolResultNode,
-} from '@deepseek-ai/dsh-client-runtime/client'
+  AssistantBlock, CommandNode, ConversationNode, PartialAssistant, ToolResultNode,
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SessionFace, SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
   getComposerHeight, MAX_COMPOSER_HEIGHT, MIN_COMPOSER_HEIGHT, setComposerHeight, subscribePanes,
 } from './pane-store.ts'
 import { useMarkdownLabels, type MarkdownLabels } from './language.ts'
-import { PaneToolbar } from './PaneToolbar.tsx'
+import { PaneToolbar, type PermissionOption } from './PaneToolbar.tsx'
 
 /** One host slash command surfaced in the pane input menu. */
 export interface PaneCommand {
@@ -64,13 +65,53 @@ export const EMPTY_CHAT_SNAPSHOT: PaneChatSnapshot = {
   legacy: { nodes: [], partial: null },
 }
 
+/** Minimal subscribable read face for a shell-owned snapshot source. */
+export interface ObservableSource<T> {
+  getSnapshot(): T
+  subscribe(listener: () => void): () => void
+}
+
+/** One session's UI status as far as the pane cares: a pending user interaction. */
+export interface PaneSessionStatus {
+  readonly pendingInteraction?: unknown
+}
+
+/** Per-session UI status map published by the shell's Session UI layer. */
+export type PaneSessionStatusObservable = ObservableSource<ReadonlyMap<string, PaneSessionStatus>>
+
+/** One durable inbox occurrence (pending next-turn input). */
+interface InboxMessage {
+  readonly id: string
+  readonly content: readonly { readonly type: string; readonly text?: string }[]
+}
+
+type InboxState = { readonly 'next-turn'?: readonly InboxMessage[] } | undefined
+
+const EMPTY_STATUS: ReadonlyMap<string, PaneSessionStatus> = new Map()
+
+/** Bind a bare observable to React without pulling in the shell's store package. */
+function useObservable<T>(source: ObservableSource<T> | undefined, fallback: T): T {
+  const subscribe = useMemo(
+    () => (source === undefined ? () => () => {} : (listener: () => void) => source.subscribe(listener)),
+    [source],
+  )
+  const getSnapshot = useMemo(
+    () => (source === undefined ? () => fallback : () => source.getSnapshot()),
+    [source, fallback],
+  )
+  return useSyncExternalStore(subscribe, getSnapshot, () => fallback)
+}
+
 interface MiniChatPaneProps {
   readonly sessionId: string
   readonly session: SessionFace | undefined
   /** Chat view snapshot; absent on shells that predate the Conversation assembly. */
   readonly chat: PaneChatObservable | undefined
+  /** Session UI status source; absent on shells without the Session UI layer. */
+  readonly sessionStatus: PaneSessionStatusObservable | undefined
   readonly directory: ModelDirectory | undefined
   readonly listCommands: (sessionId: string) => Promise<readonly PaneCommand[]>
+  readonly permissionOptions: readonly PermissionOption[]
   readonly openInMain: () => void
 }
 
@@ -274,7 +315,7 @@ function CommandCard({ node }: { node: CommandNode }) {
 }
 
 /** Render one session's conversation with an input box and live controls. */
-export function MiniChatPane({ sessionId, session, chat, directory, listCommands, openInMain }: MiniChatPaneProps) {
+export function MiniChatPane({ sessionId, session, chat, sessionStatus, directory, listCommands, permissionOptions, openInMain }: MiniChatPaneProps) {
   const [draft, setDraft] = useState('')
   const [commands, setCommands] = useState<readonly PaneCommand[]>([])
   const [slashIndex, setSlashIndex] = useState(0)
@@ -301,7 +342,7 @@ export function MiniChatPane({ sessionId, session, chat, directory, listCommands
       : (listener: () => void) => session.subscribe(listener),
     [session],
   )
-  /** Session lifecycle/control state: running, queue, paging, pending echoes. */
+  /** Session lifecycle/control state: running, paging, pending local echoes. */
   const snapshot: SessionSnapshot | null = useSyncExternalStore(
     subscribeSession,
     () => session?.getSnapshot() ?? null,
@@ -320,13 +361,17 @@ export function MiniChatPane({ sessionId, session, chat, directory, listCommands
     () => undefined,
   )
 
-  useEffect(() => {
-    if (session === undefined) return
-    // Runtime-internal bridge: open the history window so live events flow.
-    // TODO(upstream): replace with a public per-session staging API.
-    const sessionWithOpen = session as unknown as { open(): Promise<void> }
-    void sessionWithOpen.open()
-  }, [session])
+  /** Durable queued input: the `inbox` projection's next-turn rows. */
+  const inboxSource = useMemo(
+    () => session?.projections.faceOf('inbox') as unknown as ObservableSource<InboxState> | undefined,
+    [session],
+  )
+  const inbox = useObservable(inboxSource, undefined)
+  const queue = inbox?.['next-turn'] ?? []
+  /** Local echoes still sending; the Host queue rows replace them once admitted. */
+  const pending = snapshot?.pendingSubmissions ?? []
+  const pendingQueue = pending.filter(item => item.placement === 'queued')
+  const status = useObservable(sessionStatus, EMPTY_STATUS).get(sessionId)
 
   useEffect(() => {
     let cancelled = false
@@ -518,8 +563,6 @@ export function MiniChatPane({ sessionId, session, chat, directory, listCommands
   const partial: PartialAssistant | null = chatSnapshot?.legacy.partial ?? null
   const running = snapshot?.running ?? false
   const hasMore = snapshot?.hasMore ?? false
-  const queue = snapshot?.queue ?? []
-  const pendingCount = snapshot?.pendingSubmissions.length ?? 0
   const markdownLabels = useMarkdownLabels()
 
   return (
@@ -552,7 +595,7 @@ export function MiniChatPane({ sessionId, session, chat, directory, listCommands
       }}
     >
       <style>{PANE_CSS}</style>
-      {session !== undefined && <PaneToolbar session={session} directory={directory} />}
+      {session !== undefined && <PaneToolbar session={session} directory={directory} permissionOptions={permissionOptions} />}
       <div
         ref={chatRef}
         data-mcp-chat-scroll
@@ -663,11 +706,41 @@ export function MiniChatPane({ sessionId, session, chat, directory, listCommands
             <AssistantBlocksView blocks={partial.blocks} streaming labels={markdownLabels} />
           </div>
         )}
-        {queue.length > 0 && (
+        {(queue.length > 0 || pendingQueue.length > 0) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {queue.map(item => (
+            {queue.map((item) => {
+              const text = firstLine(textBlocksText(item.content), 120)
+              return (
+                <div
+                  key={item.id}
+                  style={{
+                    alignSelf: 'flex-end',
+                    maxWidth: '85%',
+                    padding: '4px 8px',
+                    borderRadius: 8,
+                    background: 'var(--dsw-alias-bg-mask-drop, rgba(0,0,0,0.04))',
+                    border: '1px dashed var(--dsw-alias-border-l3, #d0d7de)',
+                    fontSize: 12,
+                    display: 'flex',
+                    gap: 8,
+                    alignItems: 'center',
+                  }}
+                >
+                  <span>⏳ {text}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove queued message ${text}`}
+                    onClick={() => { void session?.updateQueue(item.id as never, { kind: 'remove' }) }}
+                    style={{ border: 0, background: 'transparent', cursor: 'pointer' }}
+                  >
+                    ×
+                  </button>
+                </div>
+              )
+            })}
+            {pendingQueue.map(item => (
               <div
-                key={item.id}
+                key={item.requestId}
                 style={{
                   alignSelf: 'flex-end',
                   maxWidth: '85%',
@@ -676,27 +749,15 @@ export function MiniChatPane({ sessionId, session, chat, directory, listCommands
                   background: 'var(--dsw-alias-bg-mask-drop, rgba(0,0,0,0.04))',
                   border: '1px dashed var(--dsw-alias-border-l3, #d0d7de)',
                   fontSize: 12,
-                  display: 'flex',
-                  gap: 8,
-                  alignItems: 'center',
+                  color: 'var(--dsw-alias-label-primary-dimmed, #656d76)',
                 }}
               >
-                <span>⏳ {item.preview}</span>
-                {item.placement === 'queued' && (
-                  <button
-                    type="button"
-                    aria-label={`Remove queued message ${item.preview}`}
-                    onClick={() => { void session?.updateQueue(item.id, { kind: 'remove' } as never) }}
-                    style={{ border: 0, background: 'transparent', cursor: 'pointer' }}
-                  >
-                    ×
-                  </button>
-                )}
+                ⏳ {firstLine(item.text, 120)}
               </div>
             ))}
           </div>
         )}
-        {pendingCount > 0 && (
+        {status?.pendingInteraction !== undefined && (
           <button
             type="button"
             data-mcp-open-main

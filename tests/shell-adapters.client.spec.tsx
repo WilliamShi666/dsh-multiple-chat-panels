@@ -1,11 +1,25 @@
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+// The published primitives package is a shell-internal bundle whose styling and
+// third-party imports only exist inside the Harness frontend; tests stub the one
+// component the pane renders so jsdom can mount the real pane code.
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
+  MarkdownText: ({ text }: { text: string }) => React.createElement('span', null, text),
+}))
 import { MissionControlNav } from '../src/client/MissionControlNav.tsx'
 import { MissionControlOverlay } from '../src/client/MissionControlOverlay.tsx'
 import { createMissionControlNavigation } from '../src/client/navigation.ts'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+class TestResizeObserver {
+  readonly observe = vi.fn()
+  readonly unobserve = vi.fn()
+  readonly disconnect = vi.fn()
+}
+
+globalThis.ResizeObserver = TestResizeObserver as never
 
 const emptySessions = {
   ids: [],
@@ -62,8 +76,10 @@ describe('shell adapters', () => {
           close={navigation.close}
           useSessions={select => select(emptySessions as never)}
           getSession={() => undefined}
+          getSessionStatus={() => undefined}
           getModelDirectory={() => undefined}
           listCommands={async () => []}
+          listPermissionOptions={async () => []}
           openInMain={() => {}}
         />
       </>)
@@ -119,8 +135,10 @@ describe('shell adapters', () => {
         close={() => {}}
         useSessions={select => select(emptySessions as never)}
         getSession={() => undefined}
+        getSessionStatus={() => undefined}
         getModelDirectory={() => undefined}
         listCommands={async () => []}
+        listPermissionOptions={async () => []}
         openInMain={() => {}}
       />)
     })

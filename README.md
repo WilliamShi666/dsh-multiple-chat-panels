@@ -16,6 +16,50 @@ multiple-chat-panels 把这种体验带到了 DeepSeek Harness：你只需把左
 
 ![DeepSeek Harness multi-chat panels in light mode](https://raw.githubusercontent.com/WilliamShi666/dsh-multiple-chat-panels/main/docs/screenshots/light.jpg)
 
+## v0.2.0 updates / v0.2.0 更新
+
+- Adapted for DeepSeek Harness v0.2.1-rc.2.
+- Panes now acquire Sessions through the public retain/release ledger
+  (`ctx.sessions.retain(id, { source })`), replacing the internal
+  `SessionFace.open()` bridge of 0.1: retaining a pane is what stages its
+  history, and closing the pane releases it.
+- Fixed drop-to-open again: the 0.2 shell moved the conversation root under
+  `[data-slot="main.conversation"]` and dropped `[data-dsh-center-col]`, which
+  made every sidebar drag silently do nothing. The centre column is now
+  resolved from the `main` slot's rendered parent, with all older anchors kept.
+- Queued messages read from the durable `inbox` projection (the 0.2 session
+  snapshot no longer carries a `queue`), and local echoes still sending are
+  shown beside them.
+- The permission control reads the process catalog from
+  `remote.permissionPresets` (the 0.2 projection carries the current value
+  only); the pane toolbar hides itself when no catalog is available.
+- The approval / plan-review hint follows the Session UI status
+  (`uiSession.sessionStatus` pending interaction) instead of guessing from
+  pending prompts.
+- “Open in main conversation” uses Workspace navigation
+  (`uiWorkspace.openSession`); `ctx.sessions.open()` no longer exists.
+- Client builds now use the package's own pinned devDependencies: `pnpm
+  install && npm run build` no longer needs a DSH source checkout.
+
+- 已适配 DeepSeek Harness v0.2.1-rc.2。
+- 面板改用公开的 retain/release 机制
+  （`ctx.sessions.retain(id, { source })`）获取会话，取代 0.1 的内部
+  `SessionFace.open()` 桥接：面板打开即持有引用并加载历史，关闭即释放。
+- 再次修复拖拽打开：0.2 外壳把对话根节点移到
+  `[data-slot="main.conversation"]` 下并移除了 `[data-dsh-center-col]`，
+  导致侧边栏拖拽被静默忽略。中央列现在从 `main` 槽位最近的渲染父元素解析，
+  同时保留所有旧锚点。
+- 队列消息改读持久化的 `inbox` projection（0.2 的会话快照不再带 `queue`），
+  尚未被接收的本地发送回显同时展示。
+- 权限控件从 `remote.permissionPresets` 读取进程级目录
+  （0.2 的 projection 只带当前值）；没有目录时工具栏自动隐藏该控件。
+- 审批 / 计划模式提示改为跟随 Session UI 状态
+  （`uiSession.sessionStatus` 的 pending interaction），不再靠待发送请求猜测。
+- “回到单对话”改用 Workspace 导航（`uiWorkspace.openSession`）；
+  `ctx.sessions.open()` 已不存在。
+- 客户端构建改用包自身锁定的 devDependencies：`pnpm install && npm run
+  build` 不再需要 DSH 源码 checkout。
+
 ## v0.1.2 updates / v0.1.2 更新
 
 - Adapted for DeepSeek Harness v0.1.5-rc.2.
@@ -67,12 +111,13 @@ dsh plugin --profile web add github:WilliamShi666/dsh-multiple-chat-panels
 
 | 插件版本 / Plugin | 适配的 DeepSeek Harness / Harness |
 | --- | --- |
-| `0.1.2` | **v0.1.5-rc.2** 及以上 / and newer —— 面板转录读取自该版本引入的 Conversation assembly |
+| `0.2.0` | **v0.2.1-rc.2** 及以上 / and newer —— 使用 0.2 的 Session retain 机制、inbox projection 与权限目录 Remote |
+| `0.1.2` | v0.1.5-rc.2 —— 在 v0.2 上会话无法打开（`binding()` 不再隐式建立会话） / panes stay on `Loading session …` on v0.2 |
 | `0.1.1` | v0.1.1-rc.2 —— 在 v0.1.5-rc.2 上拖拽无响应（中央列锚点已变更） / dragging does nothing on v0.1.5-rc.2 |
 
-上面的安装命令装的是 `latest`。**如果你的 DSH 低于 v0.1.5-rc.2，请显式安装旧版本**，否则面板会一直停在 `Loading session …`：
+上面的安装命令装的是 `latest`（当前适配 v0.2.x）。**如果你的 DSH 是 v0.1.5-rc.2，请显式安装 0.1.2**，否则面板会一直停在 `Loading session …`：
 
-The command above installs `latest`. **On a Harness older than v0.1.5-rc.2, pin the older version**, or panes stay on `Loading session …`:
+The command above installs `latest` (built for v0.2.x). **On a v0.1.5-rc.2 Harness, pin 0.1.2**, or panes stay on `Loading session …`:
 
 ```bash
 dsh plugin --profile web add multiple-chat-panels@0.1.1

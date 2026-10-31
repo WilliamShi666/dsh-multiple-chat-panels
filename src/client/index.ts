@@ -6,23 +6,54 @@
  * navigation controller and the same Mission Control page.
  */
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ModelDirectory } from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SlotMap } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SlotMap, SlotScopeAdapter } from '@deepseek-ai/dsh-client-ui-slots'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { MissionControlNav, type MissionControlNavInjected } from './MissionControlNav.tsx'
 import { MissionControlOverlay, type MissionControlOverlayProps } from './MissionControlOverlay.tsx'
 import { MissionControlPage, type MissionControlPageInjected } from './MissionControlPage.tsx'
-import type { PaneChatObservable, PaneChatSnapshot } from './MiniChatPane.tsx'
+import type { PaneChatObservable, PaneChatSnapshot, PaneSessionStatusObservable } from './MiniChatPane.tsx'
 import { EMPTY_CHAT_SNAPSHOT } from './MiniChatPane.tsx'
 import { PANE_DRAG_MIME } from './drag.ts'
 import { createMissionControlNavigation } from './navigation.ts'
-import { getPaneSize, PANE_GAP, placePane, type PaneRow } from './pane-store.ts'
+import { getPaneSize, getPanes, PANE_GAP, placePane, subscribePanes, type PaneRow } from './pane-store.ts'
+
+/**
+ * Retain-source identity for this plugin's per-pane session references. DSH
+ * 0.2 counts local retention per consumer, so the plugin must name itself
+ * through the Session Controller's merge-extensible source map.
+ */
+declare module '@deepseek-ai/dsh-api-session-controller/client' {
+  interface SessionReferenceSourceMap {
+    multipleChatPanels: unknown
+  }
+}
 
 export const PAGE_ID = 'mission-control'
 
-export const inject = ['slots', 'layout', 'sessions', 'modelDirectories', 'remote', 'remote.commands']
+/**
+ * Services this plugin reads through proxies.
+ *
+ * Cordis evaluates nested service reads of a called service against the
+ * CALLER's fiber, so the dotted Remote namespaces consumed indirectly through
+ * the Model Directory (`remote.session`) and the permission catalog
+ * (`remote.permissionPresets`) must be declared here as well.
+ */
+export const inject = [
+  'slots',
+  'layout',
+  'sessions',
+  'modelDirectories',
+  'remote',
+  'remote.commands',
+  'remote.session',
+  'remote.permissionPresets',
+]
 
 /** Minimal face of the shell's Conversation assembly service (`ctx.uiConversation`). */
 interface UiConversationFace {
@@ -39,17 +70,17 @@ interface LegacyLayout {
 /**
  * A drop belongs to an open grid, the legacy center, or the current center column.
  *
- * Three shell generations are recognised, tried from the most specific to the
+ * Four shell generations are recognised, tried from the most specific to the
  * most generic so a drop is still accepted when one generation's anchor is
  * absent:
  *  - an open Mission Control grid owns the drop;
  *  - the pre-0.1.1 shell's `centerSurface` class;
  *  - the 0.1.1-era `[data-slot="conversation"]` inside a collapsible center;
- *  - the current shell, whose conversation column is `[data-dsh-center-col]`.
- *
- * The last case deliberately does not require any particular attribute on an
- * ancestor: DSH has already moved this anchor once, and the conversation column
- * is the element that actually receives the drop.
+ *  - the 0.1.5-era `[data-dsh-center-col]` conversation column;
+ *  - the 0.2 shell, where the conversation root sits in
+ *    `[data-slot="main.conversation"]` and the centre column is that slot's
+ *    nearest rendered ancestor (the slot element itself is `display: contents`
+ *    and therefore has no box).
  */
 function dropSurface(target: EventTarget | null): Element | null {
   if (!(target instanceof Element)) return null
@@ -60,11 +91,16 @@ function dropSurface(target: EventTarget | null): Element | null {
   const conversation = target.closest('[data-phase]')
   if (conversation === null) return null
   const slot = conversation.closest('[data-slot="conversation"]')
-  const center = slot?.parentElement
-  if (center instanceof HTMLElement && center.parentElement?.hasAttribute('data-details-collapsed') === true) {
-    return center
+  const collapsibleCenter = slot?.parentElement
+  if (collapsibleCenter instanceof HTMLElement
+    && collapsibleCenter.parentElement?.hasAttribute('data-details-collapsed') === true) {
+    return collapsibleCenter
   }
-  return conversation.closest('[data-dsh-center-col]')
+  const oldCenter = conversation.closest('[data-dsh-center-col]')
+  if (oldCenter !== null) return oldCenter
+  const main = conversation.closest('[data-slot="main"]')
+  const center = main?.parentElement
+  return center instanceof HTMLElement && center.clientWidth > 0 ? center : null
 }
 
 function gridRowElement(grid: Element, row: PaneRow): Element | null {
@@ -138,6 +174,39 @@ export function apply(ctx: ClientContext): void {
   const legacyShell = typeof layout.openPrimaryPage === 'function'
   /** One identity-stable Chat source per session, so pane subscriptions never churn. */
   const chatSources = new Map<string, PaneChatObservable>()
+  /**
+   * Live Session references held for open panes.
+   *
+   * DSH 0.2 replaced the implicit `binding(id)` auto-staging of 0.1 with an
+   * explicit retain/release ledger: `ctx.sessions.binding()` now only borrows an
+   * already-retained generation. A pane therefore retains its session for as
+   * long as it is open and drops the reference when the pane closes, which is
+   * also what opens the history window (replacing the old internal `open()`
+   * bridge).
+   */
+  const retained = new Map<string, SessionReference>()
+  const acquire = (sessionId: string): SessionReference | undefined => {
+    const existing = retained.get(sessionId)
+    if (existing !== undefined) return existing
+    try {
+      const reference = ctx.sessions.retain(sessionId as SessionId, { source: 'multipleChatPanels' })
+      retained.set(sessionId, reference)
+      return reference
+    } catch {
+      return undefined
+    }
+  }
+  const release = (sessionId: string): void => {
+    const reference = retained.get(sessionId)
+    if (reference === undefined) return
+    retained.delete(sessionId)
+    chatSources.delete(sessionId)
+    try {
+      reference.release()
+    } catch {
+      // A released generation is already gone; nothing else to drop.
+    }
+  }
   const open = (): void => {
     if (typeof layout.openPrimaryPage === 'function') layout.openPrimaryPage(PAGE_ID)
     else navigation.open()
@@ -147,7 +216,13 @@ export function apply(ctx: ClientContext): void {
     else navigation.close()
   }
   const pageFace = (): MissionControlPageInjected => ({
-    getSession: (sessionId) => ctx.sessions.binding(sessionId as SessionId)?.session,
+    getSession: (sessionId) => {
+      try {
+        return acquire(sessionId)?.binding.session
+      } catch {
+        return undefined
+      }
+    },
     getChat: (sessionId) => {
       const cached = chatSources.get(sessionId)
       if (cached !== undefined) return cached
@@ -159,7 +234,7 @@ export function apply(ctx: ClientContext): void {
         const uiConversation = (ctx as unknown as { get?(name: string): unknown })
           .get?.('uiConversation') as UiConversationFace | undefined
         if (uiConversation === undefined) return undefined
-        const sessionBinding = ctx.sessions.binding(sessionId as SessionId)
+        const sessionBinding = acquire(sessionId)?.binding
         if (sessionBinding === undefined) return undefined
         const target = uiConversation.binding(sessionBinding).target('chat') as {
           getSnapshot(): PaneChatSnapshot | undefined
@@ -175,6 +250,15 @@ export function apply(ctx: ClientContext): void {
         }
         chatSources.set(sessionId, source)
         return source
+      } catch {
+        return undefined
+      }
+    },
+    getSessionStatus: () => {
+      try {
+        const uiSession = (ctx as unknown as { get?(name: string): unknown })
+          .get?.('uiSession') as { sessionStatus?: PaneSessionStatusObservable } | undefined
+        return uiSession?.sessionStatus
       } catch {
         return undefined
       }
@@ -199,8 +283,26 @@ export function apply(ctx: ClientContext): void {
         return []
       }
     },
+    listPermissionOptions: async () => {
+      try {
+        const result = await ctx.remote.permissionPresets.catalog()
+        if (!result.ok) return []
+        return result.value.options.map(option => ({ value: option.value, name: option.name }))
+      } catch {
+        return []
+      }
+    },
     openInMain: (sessionId) => {
-      ctx.sessions.open(sessionId as SessionId)
+      // `ctx.sessions.open()` was removed in 0.2; Workspace navigation owns
+      // Session selection. Fall back to the old verb on older shells.
+      const uiWorkspace = (ctx as unknown as { get?(name: string): unknown })
+        .get?.('uiWorkspace') as { openSession?(target: unknown): void } | undefined
+      if (typeof uiWorkspace?.openSession === 'function') {
+        uiWorkspace.openSession(sessionId)
+      } else {
+        const legacyOpen = (ctx.sessions as unknown as { open?(id: SessionId): void }).open
+        legacyOpen?.call(ctx.sessions, sessionId as SessionId)
+      }
       close()
     },
   })
@@ -238,6 +340,23 @@ export function apply(ctx: ClientContext): void {
       }),
     } as never, MissionControlNav as never))
   }
+
+  // Retain each open pane's Session, and drop the reference (closing its
+  // staged history window) as soon as that pane is removed.
+  ctx.effect(() => {
+    const sync = (): void => {
+      const panes = new Set(getPanes())
+      for (const sessionId of [...retained.keys()]) {
+        if (!panes.has(sessionId)) release(sessionId)
+      }
+    }
+    sync()
+    const unsubscribe = subscribePanes(sync)
+    return () => {
+      unsubscribe()
+      for (const sessionId of [...retained.keys()]) release(sessionId)
+    }
+  }, 'multiple-chat-panels: pane retention')
 
   const onDragOver = (event: DragEvent): void => {
     if (dropSurface(event.target) === null) return
@@ -282,7 +401,11 @@ export function apply(ctx: ClientContext): void {
     if (dragged === '') return
     event.preventDefault()
     clearDropPreview()
-    const current = ctx.sessions.list.getSnapshot().current
+    // The main view's Session is the Session UI layer's current scoped
+    // binding; 0.2 removed the `current` field from the catalog snapshot.
+    const uiSession = (ctx as unknown as { get?(name: string): unknown })
+      .get?.('uiSession') as { adapter?: SlotScopeAdapter } | undefined
+    const current = uiSession?.adapter?.current.getSnapshot().key
     const grid = document.querySelector<HTMLElement>('[data-mcp-grid]')
     if (grid === null) {
       // First drop opens Mission Control: keep the current session and put

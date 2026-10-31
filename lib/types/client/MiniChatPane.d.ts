@@ -11,7 +11,9 @@
  */
 import React from 'react';
 import type { ModelDirectory } from '@deepseek-ai/dsh-client-ui-model-selection/client';
-import type { ConversationNode, PartialAssistant, SessionFace } from '@deepseek-ai/dsh-client-runtime/client';
+import type { ConversationNode, PartialAssistant } from '@deepseek-ai/dsh-client-ui-conversation/client';
+import type { SessionFace } from '@deepseek-ai/dsh-api-session-controller/client';
+import { type PermissionOption } from './PaneToolbar.tsx';
 /** One host slash command surfaced in the pane input menu. */
 export interface PaneCommand {
     readonly name: string;
@@ -49,15 +51,29 @@ export interface PaneChatObservable {
  * constant for exactly this reason.
  */
 export declare const EMPTY_CHAT_SNAPSHOT: PaneChatSnapshot;
+/** Minimal subscribable read face for a shell-owned snapshot source. */
+export interface ObservableSource<T> {
+    getSnapshot(): T;
+    subscribe(listener: () => void): () => void;
+}
+/** One session's UI status as far as the pane cares: a pending user interaction. */
+export interface PaneSessionStatus {
+    readonly pendingInteraction?: unknown;
+}
+/** Per-session UI status map published by the shell's Session UI layer. */
+export type PaneSessionStatusObservable = ObservableSource<ReadonlyMap<string, PaneSessionStatus>>;
 interface MiniChatPaneProps {
     readonly sessionId: string;
     readonly session: SessionFace | undefined;
     /** Chat view snapshot; absent on shells that predate the Conversation assembly. */
     readonly chat: PaneChatObservable | undefined;
+    /** Session UI status source; absent on shells without the Session UI layer. */
+    readonly sessionStatus: PaneSessionStatusObservable | undefined;
     readonly directory: ModelDirectory | undefined;
     readonly listCommands: (sessionId: string) => Promise<readonly PaneCommand[]>;
+    readonly permissionOptions: readonly PermissionOption[];
     readonly openInMain: () => void;
 }
 /** Render one session's conversation with an input box and live controls. */
-export declare function MiniChatPane({ sessionId, session, chat, directory, listCommands, openInMain }: MiniChatPaneProps): React.JSX.Element;
+export declare function MiniChatPane({ sessionId, session, chat, sessionStatus, directory, listCommands, permissionOptions, openInMain }: MiniChatPaneProps): React.JSX.Element;
 export {};
